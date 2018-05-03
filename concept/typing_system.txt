@@ -1,0 +1,62 @@
+mixed hierarchical taxonomic typing n-gram set pattern:
+POS:tow language
+SRL,AMR:low accuacy
+
+dep+gram+NER
+word->lemma,/r/FormOf
+Predicate->conceptNet(IsA)
+/r/InstanceOf
+/r/UsedFor
+/r/CapableOf
+/r/AtLocation
+/r/Causes
+/r/HasSubevent
+/r/HasPrerequisite
+/r/MotivatedByGoal
+/r/ObstructedBy
+/r/Desires
+/r/CreatedBy
+/r/Synonym
+/r/Antonym
+/r/DerivedFrom
+/r/DefinedAs
+/r/Entails
+/r/MannerOf
+/r/CausesDesire
+
+NER-[NER_CONLL,OntoNotes 5]
+###########################################################
+MISC--
+PERSON: PERSON
+TITLE: TITLE
+ORG: NORP[NATIONALITY,RELIGION],ORG,GPE
+LOC: LOC,FACILITY,GPE(in at on)[CITY,STATE_OR_PROVINCE,COUNTRY]
+NUM: MONEY, NUMBER, ORDINAL, PERCENT, QUANTITY,CARDINAL
+URI: EMAIL, URL
+TEMP: DATE, TIME, DURATION, SET
+EVENT: EVENT,CRIMINAL_CHARGE,CAUSE_OF_DEATH
+social: PRODUCT,LAW,WORK_OF_ART,LANGUAGE,IDEOLOGY
+###########################################################
+OntoNotes 5
+###########################################################
+PERSON	People, including fictional.
+NORP	Nationalities or religious or political groups.
+FACILITY	Buildings, airports, highways, bridges, etc.
+ORG	Companies, agencies, institutions, etc.
+GPE	Countries, cities, states.
+LOC	Non-GPE locations, mountain ranges, bodies of water.
+PRODUCT	Objects, vehicles, foods, etc. (Not services.)
+EVENT	Named hurricanes, battles, wars, sports events, etc.
+WORK_OF_ART	Titles of books, songs, etc.
+LAW	Named documents made into laws.
+LANGUAGE	Any named language.
+DATE	Absolute or relative dates or periods.
+TIME	Times smaller than a day.
+PERCENT	Percentage, including "%".
+MONEY	Monetary values, including unit.
+QUANTITY	Measurements, as of weight or distance.
+ORDINAL	"first", "second", etc.
+CARDINAL	Numerals that do not fall under another type.
+############################################################
+
+############################################################
