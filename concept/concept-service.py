@@ -45,3 +45,15 @@ def conceptualization(words,lang='en',rel='/microsoft/IsA',topk=10,su='p'):
     else:
         print(locals())
         return {'message':'null'}
+
+@hug.get('/event_conceptulize')
+@hug.post('/event_conceptulize')
+def event_conceptulize(words,lang='en',topk=10):
+    words = locals()['words'] 
+    words = [words] if isinstance(words,str) else words
+    lang = locals()['lang']
+    topk = int(locals()['topk'])
+    texts = [uri.concept_uri(lang,word) for word in words]
+    query = f'MATCH p=(a)-[r:`/r/IsA`|:`/r/microsoft/IsA`|:`/r/InstanceOf`*2..2]->(b) WHERE a.conceptId IN {texts} AND b.conceptId = "/c/en/event" RETURN extract(x IN nodes(p) | x.conceptId) as nodes,extract(x IN relationships(p) | type(x)) as rels,reduce(prob = 1.0, x IN relationships(p) | prob*x.weight ) as probs  ORDER BY probs DESC LIMIT {topk};'
+    print(locals())
+    return graph.run(query).data()

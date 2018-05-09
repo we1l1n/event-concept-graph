@@ -1,4 +1,4 @@
-neo4j-admin import --nodes:Concept "concept-node-header.csv,microsoft-node-.*,conceptnet-node-.*" --relationships "concept-rel-header.csv,/microsoft-rel-.*,conceptnet-rel-.*" --ignore-missing-nodes --ignore-duplicate-nodes
+neo4j-admin import --nodes:Concept "concept-node-header.csv,microsoft-node-.*,conceptnet-node-.*" --relationships "concept-rel-header.csv,microsoft-rel-.*,conceptnet-rel-.*" --ignore-missing-nodes --ignore-duplicate-nodes
 
 IMPORT DONE in 2m 44s 507ms.
 Imported:

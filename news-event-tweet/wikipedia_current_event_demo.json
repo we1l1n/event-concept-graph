@@ -1,0 +1,60 @@
+{
+    "_id" : ObjectId("59fbc9fa60b18848c5a4ce5d"),
+    "event" : {
+        "date" : "2010-07-01",
+        "description" : "Somali President Sharif Ahmed joins Somali troops on the front line during battles on the 50th anniversary of the country's independence. (CNN) (BBC)",
+        "class" : "Armed conflicts and attacks",
+        "title" : ""
+    },
+    "ie" : {
+        "openie" : {
+            "object" : "battles on 50th anniversary of country 's independence",
+            "relation" : "joins troops during",
+            "subject" : "Somali President Sharif Ahmed"
+        },
+        "ner_dict" : {
+            "ORDINAL" : [ 
+                "50th"
+            ],
+            "PERSON" : [ 
+                "Sharif Ahmed"
+            ],
+            "MISC" : [ 
+                "Somali"
+            ]
+        }
+    },
+    "type" : 1,
+    "query_str" : "(\"sharif ahmed\" OR \"somali\") (\"50th\" OR \"joins\" OR \"independence\" OR \"battles\") since:2010-06-30 until:2010-07-02",
+    "queries" : [ 
+        "\"50th\" \"joins\" since:2010-06-28 until:2010-07-01", 
+        "\"50th\" \"battles\" since:2010-06-28 until:2010-07-01", 
+        "\"50th\" \"Somali\" since:2010-06-28 until:2010-07-01", 
+        "\"50th\" \"Sharif Ahmed\" since:2010-06-28 until:2010-07-01", 
+        "\"joins\" \"battles\" since:2010-06-28 until:2010-07-01", 
+        "\"joins\" \"Somali\" since:2010-06-28 until:2010-07-01", 
+        "\"joins\" \"Sharif Ahmed\" since:2010-06-28 until:2010-07-01", 
+        "\"battles\" \"Somali\" since:2010-06-28 until:2010-07-01", 
+        "\"battles\" \"Sharif Ahmed\" since:2010-06-28 until:2010-07-01", 
+        "\"Somali\" \"Sharif Ahmed\" since:2010-06-28 until:2010-07-01", 
+        "\"50th\" \"joins\" since:2010-07-01 until:2010-07-02", 
+        "\"50th\" \"battles\" since:2010-07-01 until:2010-07-02", 
+        "\"50th\" \"Somali\" since:2010-07-01 until:2010-07-02", 
+        "\"50th\" \"Sharif Ahmed\" since:2010-07-01 until:2010-07-02", 
+        "\"joins\" \"battles\" since:2010-07-01 until:2010-07-02", 
+        "\"joins\" \"Somali\" since:2010-07-01 until:2010-07-02", 
+        "\"joins\" \"Sharif Ahmed\" since:2010-07-01 until:2010-07-02", 
+        "\"battles\" \"Somali\" since:2010-07-01 until:2010-07-02", 
+        "\"battles\" \"Sharif Ahmed\" since:2010-07-01 until:2010-07-02", 
+        "\"Somali\" \"Sharif Ahmed\" since:2010-07-01 until:2010-07-02"
+    ],
+    "abstracts" : [ 
+        {
+            "media" : [ 
+                "CNN", 
+                "BBC"
+            ],
+            "abstract" : "Somali President Sharif Ahmed joins Somali troops on the front line during battles on the 50th anniversary of the country's independence."
+        }
+    ]
+}
