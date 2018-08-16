@@ -1,4 +1,12 @@
-neo4j-admin import --nodes:Concept "concept-node-header.csv,microsoft-node-.*,conceptnet-node-.*" --relationships "concept-rel-header.csv,microsoft-rel-.*,conceptnet-rel-.*" --ignore-missing-nodes --ignore-duplicate-nodes
+### docker-neo4j
+docker run -ti --name concept -p 7474:7474 -p 7687:7687 -v g:/docker/concept:/data -e NEO4J_AUTH=none neo4j
+docker exec -ti concept /bin/bash
+vi /var/lib/neo4j/neo4j.config
+dbms.active_database=concept.db
+docker restart concept
+### neo4j-import
+/var/lib/neo4j/bin/neo4j-admin import --database=concept.db --nodes:Concept "concept-node-header.csv,microsoft-node-.*,conceptnet-node-.*" --relationships "concept-rel-header.csv,microsoft-rel-.*,conceptnet-rel-.*" --ignore-missing-nodes --ignore-duplicate-nodes
+/var/lib/neo4j/bin/neo4j-admin import --database=concept.db --nodes:Concept "/data/neo/concept-node-header.csv,/data/neo/microsoft-node-.*,/data/neo/conceptnet-node-.*" --relationships "/data/neo/concept-rel-header.csv,/data/neo/microsoft-rel-.*,/data/neo/conceptnet-rel-.*" --ignore-missing-nodes --ignore-duplicate-nodes
 
 IMPORT DONE in 2m 44s 507ms.
 Imported:
@@ -6,3 +14,10 @@ Imported:
   37520818 relationships
   56392932 properties
 Peak memory usage: 696.27 MB
+
+IMPORT DONE in 3m 46s 48ms.
+Imported:
+  18204492 nodes
+  36476136 relationships
+  18204492 properties
+Peak memory usage: 1.22 GB
