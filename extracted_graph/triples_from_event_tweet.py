@@ -42,11 +42,28 @@ from collections import defaultdict
 from nltk.corpus import stopwords
 list_stopWords=list(set(stopwords.words('english')))
 
-NER_ = ['person','ordinal','number','date']
-DEP_ = ['amod','punct','case','det','ROOT','dep']
+NER_ = ['person','misc','money','number','ordinal','percent','date','time','duration','set','email','url']
+DEP_ = ['amod','punct','case','det','ROOT','dep','cc']
+
+def standard_str(string):
+    return string.replace(' ','_')\
+                    .replace('/','_')\
+                    .replace('-','_')\
+                    .replace(':','_')
+    if ' ' in string:
+        return '_'.join(string.split(' '))
+    elif '/' in string:
+        return '_'.join(string.split('/'))
+    elif '-' in string:
+        return '_'.join(string.split('-'))
+    elif ':' in string:
+        return '_'.join(string.split(':'))
+    else:
+        return string
 
 def dep_to_str(tokens_dict,entity_dict,index):
-    return entity_dict[index] if index in entity_dict.keys() else tokens_dict[index]['lemma']
+    return entity_dict[index] if index in entity_dict.keys() \
+    else tokens_dict[index]['lemma']
 
 def annotate_sentences(text):
     out = snlp.annotate(text, properties={ 'annotators':'ner,depparse','outputFormat': 'json'})
@@ -54,15 +71,15 @@ def annotate_sentences(text):
     triples = []
     for sentence in out['sentences']:
         #print(sentence['index'])
-        triples.extend(get_triples(sentence))
+        triples.extend(get_sentence_triples(sentence))
     return triples
     
-def get_triples(sentence):
+def get_sentence_triples(sentence):
     # tokens 
     tokens_dict = {}
-    [tokens_dict.update({t['index']:{'lemma':t['lemma'].lower(),'word':t['word'],'pos':t['pos']}}) for t in sentence['tokens']]
+    [tokens_dict.update({t['index']:{'lemma':standard_str(t['lemma'].lower()),'word':t['word'],'pos':t['pos']}}) for t in sentence['tokens']]
     # entity 
-    entity = [{'text':e['text'].lower(),'ner':e['ner'].lower(),'tokenBegin':e['tokenBegin']+1,'tokenEnd':e['tokenEnd'],}\
+    entity = [{'text':standard_str(e['text'].lower()),'ner':e['ner'].lower(),'tokenBegin':e['tokenBegin']+1,'tokenEnd':e['tokenEnd'],}\
               for e in sentence['entitymentions']]
     entity_dict = {}
     span_entity = [] # combine in dep
@@ -123,18 +140,18 @@ def get_event_triples(sample):
             event_triples.extend(annotate_sentences(tweet['text']))
         except:
             pass
+    event_triples = [{'head':e[0],'rel':e[1],'tail':e[2]} for e in event_triples]
     return event_triples
 
+import dask.bag as db
+import dask.dataframe as df
 
 if __name__ == '__main__':
-    import dask.bag as db
-    news_event = db.read_text('./news_event.jsonl').map(json.loads)
-    news_event_disasters_and_accdients = news_event.filter(category_filter)
-    #sample = news_event_disasters_and_accdients.take(1)[0]
-    event_triples = news_event_disasters_and_accdients.map(get_event_triples)
-    triples = []
-    for e in event_triples:
-        triples.extend(e)
-    import dask.dataframe as df
-    df_triples =  df.from_array(triples,columns=['head','rel','tail'])
-    df_triples.to_csv('./triples-*.csv')  
+    files = db.read_text('./news_event.jsonl')\
+    .map(safe_load)\
+    .filter(category_filter)\
+    .map(get_event_triples)\
+    .flatten()\
+    .to_dataframe()\
+    .to_csv('extracted/triples-*.csv',index=False)
+    print(files)
