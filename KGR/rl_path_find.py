@@ -19,6 +19,7 @@ gamma = 0.99
 target_update_freq = 1000
 max_steps = 50
 max_steps_test = 50
+num_paths = 10
 
 Transition = namedtuple('Transition', ('state', 'action', 'next_state', 'reward'))
 
@@ -31,11 +32,6 @@ def compare(v1, v2):
 def prob_norm(probs):
     return probs/sum(probs)
 
-relation = 'concept_worksfor'
-data_path =  '../../NELL-995/'
-task_path = data_path + 'tasks/' + relation +'/'
-train_pairs = [line for line in codecs.open(task_path+'train_pos','r',encoding='utf-8')]
-test_pairs = train_pairs  #= [line for line in codecs.open(task_path+'sort_test.pairs','r',encoding='utf-8')]
 ####################################################################################################################
 # KB
 class KB(object):
@@ -150,7 +146,8 @@ class Env(object):
 
         # kb_env_rl filter:rel
         self.kb = [line.rsplit() for line in codecs.open(data_path+'kb_env_rl.txt','r',encoding='utf-8')\
-        if len(line.split()) == 2 and line.split()[2] != relation and line.split()[2] != relation+'_inv']
+        if line.split()[2] != relation and line.split()[2] != relation+'_inv']
+        print('len(kb):',len(self.kb))
 
         self.die = 0 # record how many times does the agent choose an invalid path
 
@@ -164,12 +161,11 @@ class Env(object):
         done = 0 # Whether the episode has finished
         curr_pos,target_pos = state[:-1]
         chosed_relation = self.relations[action]
-        choices = []
-        for triple in self.kb:
-            if curr_pos == self.entity2id_[triple[0]] \
-                and triple[2] == chosed_relation \
-                and triple[1] in self.entity2id_:
-                choices.append(self.entity2id_[triple[1]])
+        print(f'chosed_relation:{chosed_relation}')
+        print(f'relation_id:{action}')
+        valid_actions = self.get_valid_actions(curr_pos)
+        print(f'valid_actions:{valid_actions}')
+        choices = [entity for entity,rel_id in valid_actions.items() if action == rel_id]
         if len(choices) == 0:
             reward = -1
             self.die += 1
@@ -180,9 +176,10 @@ class Env(object):
             next_pos = random.choice(choices)
             self.path.append(chosed_relation + ' -> ' + next_pos)
             self.path_relations.append(chosed_relation)
-            print('Find a valid step:',path,'Action index:',action)
+            print('Find a valid step:',next_pos,'Action index:',action)
             self.die = 0
             reward = 0
+            next_pos = self.entity2id_[next_pos]
             next_state = [next_pos, target_pos, self.die]
 
             if next_pos == target_pos:
@@ -201,12 +198,8 @@ class Env(object):
             return None
 
     def get_valid_actions(self, entityID): # valid action space <= action space
-        actions = set()
-        for triple in self.kb:
-            e1_idx = self.entity2id_[triple[0]]
-            if e1_idx == entityID:
-                actions.add(self.relation2id_[triple[2]])
-        return np.array(list(actions))
+        actions = dict([(triple[1],self.relation2id_[triple[2]]) for triple in self.kb if entityID == self.entity2id_[triple[0]]])
+        return actions
 
     def path_embedding(self, path):
         embeddings = [self.relation2vec[self.relation2id_[relation],:] for relation in path]
@@ -224,8 +217,8 @@ def teacher(e1, e2, num_paths, env, path = None):
     print('intermediates:',intermediates)      
     entity_lists = [];path_lists = []
     for i in range(num_paths):
-        suc1, entity_list1, path_list1 = BFS(kb, e1, intermediates[i]);print('{}:BFS left done'.format(i))
-        suc2, entity_list2, path_list2 = BFS(kb, intermediates[i], e2);print('{}:BFS right done'.format(i))
+        suc1, entity_list1, path_list1 = BFS(kb, e1, intermediates[i]);print(f'{i}:BFS left done')
+        suc2, entity_list2, path_list2 = BFS(kb, intermediates[i], e2);print(f'{i}:BFS right done')
         if suc1 and suc2:
             entity_lists.append(entity_list1 + entity_list2[1:])
             path_lists.append(path_list1 + path_list2)
@@ -369,6 +362,7 @@ class SupervisedPolicy(object):
     def update(self, state, action, sess = None):
         sess = sess or tf.get_default_session()
         _, loss = sess.run([self.train_op, self.loss], {self.state: state, self.action: action})
+        print('loss:',loss)
         return loss
 
 def sl_train(episodes=500):
@@ -378,14 +372,12 @@ def sl_train(episodes=500):
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         for episode in range(len(train_pairs) if len(train_pairs)<episodes else episodes):
-            #import pdb;pdb.set_trace()
             print("Episode %d" % episode);print('Training Sample:', train_pairs[episode%episodes][:-1])
             sample = train_pairs[episode%episodes].split()
             try:
-                good_episodes = teacher(sample[0], sample[1], 5, env, task_path+'graph.txt') # good_episodes from teacher
+                good_episodes = teacher(sample[0], sample[1], num_paths, env, task_path+'graph.txt') # good_episodes from teacher
             except Exception as e:
                 print('Cannot find a path');continue
-
             for item in good_episodes: # one episode one supervised batch*<state,action> to update theta
                 state_batch,action_batch = [],[]
                 for t, transition in enumerate(item):
@@ -409,19 +401,21 @@ def sl_test(episodes=300):
         for episode in range(episodes):
             print('Test sample %d: %s' % (episode,test_pairs[episode][:-1]))
             sample = test_pairs[episode].split()
+            # reset env path
+            env.path,env.path_relations = [],[]
             state_idx = [env.entity2id_[sample[0]], env.entity2id_[sample[1]], 0]
             for t in count():
                 state_vec = env.idx_state(state_idx)
                 action_probs = policy_nn.predict(state_vec)
                 action_chosen = np.random.choice(np.arange(action_space), p = np.squeeze(action_probs))
-                reward, new_state, done = env.interact(state_idx, action_chosen)
+                reward, next_state, done = env.interact(state_idx, action_chosen)
                 if done or t == max_steps_test:
                     if done:
                         print('Success')
                         success += 1
-                    print('Episode ends\n')
+                    print(f'success:{success},Episode ends')
                     break
-                state_idx = new_state
+                state_idx = next_state
 
     print('Success persentage:', success/episodes)
 ####################################################################################################################
@@ -453,6 +447,7 @@ class PolicyNetwork(object):
         # +target
         feed_dict = { self.state: state, self.target: target, self.action: action  }
         _, loss = sess.run([self.train_op, self.loss], feed_dict)
+        print('loss:',loss)
         return loss
 
 
@@ -463,6 +458,8 @@ def REINFORCE(train_pairs, policy_nn, num_episodes):
         start = time.time()
         print('Episode %d' % i_episode);print('Training sample: ', train_pairs[i_episode][:-1])
         sample = train_pairs[i_episode].split()
+        # reset env path
+        env.path,env.path_relations = [],[]
         state_idx = [env.entity2id_[sample[0]], env.entity2id_[sample[1]], 0]
         episode,state_batch_negative,action_batch_negative = [],[],[]
         for t in count():
@@ -514,8 +511,6 @@ def REINFORCE(train_pairs, policy_nn, num_episodes):
                 print('Teacher guideline failed')
         print('Episode time: ',time.time() - start)
     print('Success percentage:',success/num_episodes)
-    # reset env path
-    env.path,env.path_relations = [],[]
     # store path stats
     path_found_relation = [' -> '.join([rel for ix,rel in enumerate(path.split(' -> ')) if ix%2 == 0]) \
                                                                                  for path in path_found]
@@ -547,15 +542,20 @@ def rl_test(episodes=500):
         for episode in range(len(test_pairs) if len(test_pairs)<episodes else episodes):
             print('Test sample %d: %s' % (episode,test_pairs[episode][:-1]))
             sample = test_pairs[episode].split()
+            # reset env path
+            env.path,env.path_relations = [],[]
             state_idx = [env.entity2id_[sample[0]], env.entity2id_[sample[1]], 0]
             transitions = []
             for t in count():
                 state_vec = env.idx_state(state_idx)
                 action_probs = np.squeeze(policy_network.predict(state_vec))
                 action_chosen = np.random.choice(np.arange(action_space), p = action_probs)
-                reward, new_state, done = env.interact(state_idx, action_chosen)
-                new_state_vec = env.idx_state(new_state)
-                transitions.append(Transition(state = state_vec, action = action_chosen, next_state = new_state_vec, reward = reward))
+                reward, new_state_idx, done = env.interact(state_idx, action_chosen)
+                new_state_vec = env.idx_state(new_state_idx)
+                transitions.append(Transition(state = state_vec,\
+                                              action = action_chosen,\
+                                              next_state = new_state_vec,\
+                                              reward = reward))
                 if done or t == max_steps_test:
                     if done:
                         success += 1;print("Success")
@@ -563,7 +563,7 @@ def rl_test(episodes=500):
                     else:
                         print('Episode ends due to step limit')
                     break
-                state_idx = new_state
+                state_idx = new_state_idx
             if done:
                 if len(path_set) != 0:
                     path_found_embedding = [env.path_embedding(path.split(' -> ')) for path in path_set]
@@ -596,16 +596,25 @@ def rl_test(episodes=500):
         print('path to use saved')
 ####################################################################################################################
 # MAIN
+relation = 'concept_worksfor'
+data_path =  '../../NELL-995/'
+task_path = data_path + 'tasks/' + relation +'/'
+train_pairs = [line for line in codecs.open(task_path+'train_pos','r',encoding='utf-8')]
+test_pairs = train_pairs  #= [line for line in codecs.open(task_path+'sort_test.pairs','r',encoding='utf-8')]
 env = Env(data_path, relation.replace('_',':'))
 
-def training_pipeline(sl_train_episodes=5,
-                    sl_test_episodes=5,
-                    rl_retrain_episodes=5,
-                    rl_test_episodes=5):
-    sl_train(sl_train_episodes)
-    sl_test(sl_test_episodes)
-    rl_retrain(rl_retrain_episodes)
-    rl_test(rl_test_episodes)
+def training_pipeline(pipeline=4,
+                    sl_train_episodes=500,
+                    sl_test_episodes=300,
+                    rl_retrain_episodes=300,
+                    rl_test_episodes=500):
+    '''
+    python rl_path_find.py 4 500 300 300 500
+    '''
+    sl_train(sl_train_episodes) if pipeline > 3 else ''
+    sl_test(sl_test_episodes) if pipeline > 2 else ''
+    rl_retrain(rl_retrain_episodes) if pipeline > 1 else ''
+    rl_test(rl_test_episodes) if pipeline > 0 else ''
 
 if __name__ == '__main__':
     import fire
