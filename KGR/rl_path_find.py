@@ -1,6 +1,7 @@
 import os,sys,time,codecs,random
+from copy import copy
 from queue import Queue
-from collections import namedtuple, Counter
+from collections import namedtuple, Counter,defaultdict
 from itertools import count
 import numpy as np
 import tensorflow as tf
@@ -86,11 +87,10 @@ class Path(object):
 ####################################################################################################################
 # BFS
 class foundPaths(object):
-    def __init__(self, kb):
+    def __init__(self, kb_status):
         # {entity:status}
         # status:(isFound,prevNode,relation)
-        self.entities = dict([(entity,(False,'','')) \
-                              for entity in kb.entities.keys()])
+        self.entities = kb_status
 
     def isFound(self, entity):
         return self.entities[entity][0]
@@ -115,7 +115,7 @@ def BFS(kb, entity1, entity2):
     input: kb=KB(),head,tail
     output: (True, entity_list, path_list)
     '''
-    path_finder = foundPaths(kb);path_finder.markFound(entity1, None, None)
+    path_finder = foundPaths(copy(kb_status));path_finder.markFound(entity1, None, None)
     q = Queue();q.put(entity1)
     while(not q.empty()):
         curNode = q.get()
@@ -145,9 +145,14 @@ class Env(object):
         self.path_relations = []
 
         # kb_env_rl filter:rel
-        self.kb = [line.rsplit() for line in codecs.open(data_path+'kb_env_rl.txt','r',encoding='utf-8')\
+        #self.kb = [line.rsplit() for line in codecs.open(data_path+'kb_env_rl.txt','r',encoding='utf-8')\
+        #if line.split()[2] != relation and line.split()[2] != relation+'_inv']
+        #print('len(kb):',len(self.kb))
+
+        # valid actions
+        self.valid_actions_ = defaultdict(dict)
+        [self.valid_actions_[self.entity2id_[line.split()[0]]].update({line.split()[1]:self.relation2id_[line.split()[2]]}) for line in codecs.open(data_path+'kb_env_rl.txt','r',encoding='utf-8')\
         if line.split()[2] != relation and line.split()[2] != relation+'_inv']
-        print('len(kb):',len(self.kb))
 
         self.die = 0 # record how many times does the agent choose an invalid path
 
@@ -161,10 +166,11 @@ class Env(object):
         done = 0 # Whether the episode has finished
         curr_pos,target_pos = state[:-1]
         chosed_relation = self.relations[action]
-        print(f'chosed_relation:{chosed_relation}')
-        print(f'relation_id:{action}')
-        valid_actions = self.get_valid_actions(curr_pos)
-        print(f'valid_actions:{valid_actions}')
+        #print(f'action:{chosed_relation}')
+        print(f'chosed_action_id:{action}')
+        valid_actions = self.valid_actions_[curr_pos]#self.get_valid_actions(curr_pos)
+        valid_actions_id = set(valid_actions.values())
+        print(f'valid_actions_id:{valid_actions_id}')
         choices = [entity for entity,rel_id in valid_actions.items() if action == rel_id]
         if len(choices) == 0:
             reward = -1
@@ -197,9 +203,9 @@ class Env(object):
         else:
             return None
 
-    def get_valid_actions(self, entityID): # valid action space <= action space
-        actions = dict([(triple[1],self.relation2id_[triple[2]]) for triple in self.kb if entityID == self.entity2id_[triple[0]]])
-        return actions
+    #def get_valid_actions(self, entityID): # valid action space <= action space
+        #actions = dict([(triple[1],self.relation2id_[triple[2]]) for triple in self.kb if entityID == self.entity2id_[triple[0]]])
+        #return actions
 
     def path_embedding(self, path):
         embeddings = [self.relation2vec[self.relation2id_[relation],:] for relation in path]
@@ -208,10 +214,7 @@ class Env(object):
         return np.reshape(path_encoding,(-1, embedding_dim))
 ####################################################################################################################
 # TEACHER
-def teacher(e1, e2, num_paths, env, path = None):
-    kb = KB()
-    [kb.addRelation(line.rsplit()[0],line.rsplit()[1],line.rsplit()[2]) \
-     for line in codecs.open(path,'r',encoding='utf-8')]
+def teacher(e1, e2, num_paths, env, kb):
     # Bi-BFS path collect
     intermediates = kb.pickRandomIntermediatesBetween(e1, e2, num_paths)
     print('intermediates:',intermediates)      
@@ -362,7 +365,7 @@ class SupervisedPolicy(object):
     def update(self, state, action, sess = None):
         sess = sess or tf.get_default_session()
         _, loss = sess.run([self.train_op, self.loss], {self.state: state, self.action: action})
-        print('loss:',loss)
+        print('loss:',loss)#/state.shape[0])
         return loss
 
 def sl_train(episodes=500):
@@ -375,7 +378,7 @@ def sl_train(episodes=500):
             print("Episode %d" % episode);print('Training Sample:', train_pairs[episode%episodes][:-1])
             sample = train_pairs[episode%episodes].split()
             try:
-                good_episodes = teacher(sample[0], sample[1], num_paths, env, task_path+'graph.txt') # good_episodes from teacher
+                good_episodes = teacher(sample[0], sample[1], num_paths, env, kb) # good_episodes from teacher
             except Exception as e:
                 print('Cannot find a path');continue
             for item in good_episodes: # one episode one supervised batch*<state,action> to update theta
@@ -399,7 +402,8 @@ def sl_test(episodes=300):
     with tf.Session() as sess:
         saver.restore(sess, 'models/policy_supervised_'+ relation);print('Model reloaded')
         for episode in range(episodes):
-            print('Test sample %d: %s' % (episode,test_pairs[episode][:-1]))
+            try:print('Test sample %d: %s' % (episode,test_pairs[episode][:-1]))
+            except:continue
             sample = test_pairs[episode].split()
             # reset env path
             env.path,env.path_relations = [],[]
@@ -416,6 +420,7 @@ def sl_test(episodes=300):
                     print(f'success:{success},Episode ends')
                     break
                 state_idx = next_state
+            print('Success persentage:', success/episodes)
 
     print('Success persentage:', success/episodes)
 ####################################################################################################################
@@ -447,7 +452,7 @@ class PolicyNetwork(object):
         # +target
         feed_dict = { self.state: state, self.target: target, self.action: action  }
         _, loss = sess.run([self.train_op, self.loss], feed_dict)
-        print('loss:',loss)
+        print('loss:',loss)#/state.shape[0])
         return loss
 
 
@@ -500,16 +505,20 @@ def REINFORCE(train_pairs, policy_nn, num_episodes):
             length_reward,global_reward = 1/len(env.path),1
             total_reward = 0.1*global_reward + 0.9*length_reward
             update_episode(policy_nn,episode,total_reward)
+            print('total_reward success')
         else:
             global_reward = -0.05
             update_episode(policy_nn,episode,global_reward)
             print('Failed, Do one teacher guideline')
             try:
-                good_episodes = teacher(sample[0], sample[1], 1, env, task_path+'graph.txt')
+                good_episodes = teacher(sample[0], sample[1], 3, env, kb)
                 [update_episode(policy_nn,episode,1) for episode in good_episodes]
+                print('Teacher guideline success')
             except Exception as e:
                 print('Teacher guideline failed')
         print('Episode time: ',time.time() - start)
+        print('Success:',success)
+        print('Success percentage:',success/num_episodes)
     print('Success percentage:',success/num_episodes)
     # store path stats
     path_found_relation = [' -> '.join([rel for ix,rel in enumerate(path.split(' -> ')) if ix%2 == 0]) \
@@ -581,6 +590,8 @@ def rl_test(episodes=500):
                             action_batch.append(transition.action)
                     policy_network.update(np.reshape(state_batch,(-1,state_dim)), 0.1*diverse_reward, action_batch)
                 path_set.add(' -> '.join(env.path_relations))
+            print('Success:',success)
+            print('Success persentage:', success/episodes)
     print('Success persentage:', success/episodes)
     # env path reset
     env.path,env.path_relations = [],[]
@@ -602,6 +613,11 @@ task_path = data_path + 'tasks/' + relation +'/'
 train_pairs = [line for line in codecs.open(task_path+'train_pos','r',encoding='utf-8')]
 test_pairs = train_pairs  #= [line for line in codecs.open(task_path+'sort_test.pairs','r',encoding='utf-8')]
 env = Env(data_path, relation.replace('_',':'))
+kb = KB()
+[kb.addRelation(line.rsplit()[0],line.rsplit()[1],line.rsplit()[2]) \
+    for line in codecs.open(task_path+'graph.txt','r',encoding='utf-8')]
+kb_status = dict([(entity,(False,'','')) for entity in kb.entities.keys()])
+
 
 def training_pipeline(pipeline=4,
                     sl_train_episodes=500,
