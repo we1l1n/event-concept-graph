@@ -1,4 +1,4 @@
-import os,sys,time,codecs,random
+import os,sys,time,json,codecs,random
 from copy import copy
 from queue import Queue
 from collections import namedtuple, Counter,defaultdict
@@ -9,7 +9,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 ####################################################################################################################
 # config
 state_dim = 200
-action_space = 70 # 35*2
+#action_space = 70 # 35*2
 eps_start = 1
 eps_end = 0.1
 epe_decay = 1000
@@ -138,7 +138,7 @@ class Env(object):
         self.relation2id_ = relation2id = dict([(line.split()[0],int(line.split()[1])) for line in \
                     codecs.open(data_path+'relation2id.txt','r',encoding='utf-8') if len(line.split()) == 2])
         self.relations = list(self.relation2id_.keys())
-        embeddings = json.load(open(data_path+'R.vec.json','r'))
+        embeddings = json.load(open(data_path+'E.vec.json','r'))
         self.entity2vec = np.array(embeddings['ent_embeddings'])
         self.relation2vec = np.array(embeddings['rel_embeddings'])
 
@@ -154,7 +154,7 @@ class Env(object):
         self.valid_actions_ = defaultdict(dict)
         [self.valid_actions_[self.entity2id_[line.split()[0]]].update({line.split()[1]:self.relation2id_[line.split()[2]]}) \
         for line in codecs.open(data_path+'kb_env_rl.txt','r',encoding='utf-8')\
-        if line.split()[2] != relation and line.split()[2] != relation+'_inv']
+        if line.split()[2] != relation and line.split()[2] != relation+'_inv']# and line.split()[0] in self.entity2id_.keys()]
 
         self.die = 0 # record how many times does the agent choose an invalid path
 
@@ -391,7 +391,7 @@ def sl_train(episodes=500):
                 state_batch = np.squeeze(state_batch)
                 state_batch = np.reshape(state_batch, [-1, state_dim])
                 policy_nn.update(state_batch, action_batch)
-        saver.save(sess, 'models/policy_supervised_' + relation)
+        saver.save(sess, sl_model_path)
         print('Model saved')
 
 
@@ -402,7 +402,7 @@ def sl_test(episodes=300):
     success = 0
     saver = tf.train.Saver()
     with tf.Session() as sess:
-        saver.restore(sess, 'models/policy_supervised_'+ relation);print('Model reloaded')
+        saver.restore(sess,sl_model_path);print('Model reloaded')
         for episode in range(episodes):
             try:print('Test sample %d: %s' % (episode,test_pairs[episode][:-1]))
             except:continue
@@ -526,7 +526,7 @@ def REINFORCE(train_pairs, policy_nn, num_episodes):
     path_found_relation = [' -> '.join([rel for ix,rel in enumerate(path.split(' -> ')) if ix%2 == 0]) \
                                                                                  for path in path_found]
     relation_path_stats = sorted(Counter(path_found_relation).items(),key = lambda x:x[1],reverse=True)
-    with codecs.open('./tasks/'+relation+'/path_stats.txt','w',encoding='utf-8') as f:
+    with codecs.open(path_stats_path,'w',encoding='utf-8') as f:
         [f.write(item[0]+'\t'+str(item[1])+'\n') for item in relation_path_stats]
         print('Path stats saved')
 
@@ -535,9 +535,9 @@ def rl_retrain(episodes=300):
     policy_network = PolicyNetwork(scope = 'supervised_policy') # restore form parameters of supervised_policy
     saver = tf.train.Saver()
     with tf.Session() as sess:
-        saver.restore(sess, 'models/policy_supervised_' + relation);print("sl_policy restored")
+        saver.restore(sess,sl_model_path);print("sl_policy restored")
         REINFORCE(train_pairs, policy_network, len(train_pairs) if len(train_pairs)<episodes else episodes)
-        saver.save(sess, 'models/policy_retrained_' + relation)
+        saver.save(sess,rl_model_path)
     print('Retrained model saved')
 
 def rl_test(episodes=500):
@@ -549,7 +549,7 @@ def rl_test(episodes=500):
     path_set = set()
 
     with tf.Session() as sess:
-        saver.restore(sess, 'models/policy_retrained_' + relation);print('Model reloaded')
+        saver.restore(sess,rl_model_path);print('Model reloaded')
         for episode in range(len(test_pairs) if len(test_pairs)<episodes else episodes):
             print('Test sample %d: %s' % (episode,test_pairs[episode][:-1]))
             sample = test_pairs[episode].split()
@@ -604,7 +604,7 @@ def rl_test(episodes=500):
     ranking_path = sorted([(path_stat[0],len(path_stat[0].split(' -> '))) \
                            for path_stat in relation_path_stats],\
                           key = lambda x:x[1])
-    with codecs.open('./tasks/'+relation+'/path_to_use.txt','w',encoding='utf-8') as f:
+    with codecs.open(path_to_use_path,'w',encoding='utf-8') as f:
         [f.write(item[0]+'\n') for item in ranking_path]
         print('path to use saved')
 ####################################################################################################################
@@ -612,8 +612,15 @@ def rl_test(episodes=500):
 relation = '/r/Causes'
 data_path =  './'
 task_path = data_path + 'tasks/' + relation.replace('/','_') +'/'
+
+sl_model_path = 'models/policy_supervised_' + relation.replace('/','_')
+rl_model_path =  'models/policy_retrained_' + relation.replace('/','_')
+path_stats_path = task_path+'path_stats.txt'
+path_to_use_path = task_path+'path_to_use.txt'
+
 train_pairs = [line for line in codecs.open(task_path+'train_pos','r',encoding='utf-8')]
 test_pairs = train_pairs
+
 env = Env(data_path, relation)
 kb = KB()
 [kb.addRelation(line.rsplit()[0],line.rsplit()[2],line.rsplit()[1]) \
@@ -621,6 +628,7 @@ kb = KB()
     if line.split()[2] != relation and line.split()[2] != relation+'_inv']
 kb_status = dict([(entity,(False,'','')) for entity in kb.entities.keys()])
 
+action_space = 70
 
 def training_pipeline(pipeline=4,
                     sl_train_episodes=500,
