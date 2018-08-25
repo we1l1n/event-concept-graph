@@ -6,7 +6,12 @@ cd OpenKE
 bash make.sh
 g++ ./base/Base.cpp -fPIC -shared -o ./release/Base.so -pthread -O3 -march=native
 
-cc/train2id.txt,entity2id.txt,relation2id.txt
-python train_TransX.py [X=E,D,H]
-python train_TransR.py
+./task/train2id.txt,entity2id.txt,relation2id.txt
+python train_TransX.py
+result in ./task/E(DHR)/E(DHR).vec.json
+
+import json
+E = json.load(open(E.vec.json))
+E['ent_embeddings']
+E['rel_embeddings']
 ```
