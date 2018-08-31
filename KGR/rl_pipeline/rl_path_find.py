@@ -137,7 +137,7 @@ class Env(object):
         self.relation2id_ = dict([(line.split()[0],int(line.split()[1])) for line in \
                     codecs.open(data_path+'relation2id.txt','r',encoding='utf-8') if len(line.split()) == 2])
         self.relations = list(self.relation2id_.keys())
-        global action_space;action_space = len(self.relations);print('global action_space:',action_space)
+        #global action_space;action_space = len(self.relations);print('global action_space:',action_space)
         embeddings = json.load(open(data_path+'E.vec.json','r'))
         self.entity2vec = np.array(embeddings['ent_embeddings'])
         self.relation2vec = np.array(embeddings['rel_embeddings'])
