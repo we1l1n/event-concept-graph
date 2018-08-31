@@ -27,7 +27,8 @@ invalid = set('[!"#$%&\'()*+,-.:;<=>?@®【[\\] ^`{|}~0123456789]')
 def is_valid_phrase(s):
     return False if set(s)&invalid else True
 tweet_new = tweet_new[tweet_new.start_end_label.apply(lambda x:is_valid_phrase(x))]\
-                    [tweet_new.start != '/c/en/']\
+                    #[tweet_new.start != '/c/en/']\ 
+                    [tweet_new.start.apply(lambda x: x!='/c/en' or len(x)>0)]
                     [tweet_new.rel.str.startswith('/r/tweet')]
 print('len(tweet_new):',len(tweet_new))
 

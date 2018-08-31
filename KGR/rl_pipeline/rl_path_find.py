@@ -154,7 +154,7 @@ class Env(object):
         self.valid_actions_ = defaultdict(dict)
         [self.valid_actions_[self.entity2id_[line.split()[0]]].update({line.split()[1]:self.relation2id_[line.split()[2]]}) \
         for line in codecs.open(data_path+'kb_env_rl.txt','r',encoding='utf-8')\
-        if line.split()[2] != relation and line.split()[2] != relation+'_inv']# and line.split()[0] in self.entity2id_.keys()]
+        if len(line.split()) == 3 and line.split()[2] != relation and line.split()[2] != relation+'_inv']# and line.split()[0] in self.entity2id_.keys()]
 
         self.die = 0 # record how many times does the agent choose an invalid path
 
@@ -630,7 +630,7 @@ env = Env(data_path, relation)
 kb = KB()
 [kb.addRelation(line.rsplit()[0],line.rsplit()[2],line.rsplit()[1]) \
     for line in codecs.open(data_path+'kb_env_rl.txt','r',encoding='utf-8')\
-    if line.split()[2] != relation and line.split()[2] != relation+'_inv']
+    if len(line.split()) == 3 and line.split()[2] != relation and line.split()[2] != relation+'_inv']
 kb_status = dict([(entity,(False,'','')) for entity in kb.entities.keys()])
 
 action_space = 0
