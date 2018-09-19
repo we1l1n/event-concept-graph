@@ -1,3 +1,7 @@
+import dask.bag as db
+import codecs
+from collections import defaultdict
+
 import json
 import requests
 class StanfordCoreNLP:
@@ -28,7 +32,7 @@ class StanfordCoreNLP:
         except Exception as e:
             print(e)
         
-snlp = StanfordCoreNLP(host='10.0.1.7')
+snlp = StanfordCoreNLP()
 
 NER_ = set(['person','misc','money','number','ordinal','percent','date','time','duration','set','email','url'])
 phrase_dict = {line.split('\t')[1].strip():float(line.split('\t')[0]) \
