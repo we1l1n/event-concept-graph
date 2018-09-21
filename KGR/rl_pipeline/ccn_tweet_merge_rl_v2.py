@@ -6,11 +6,28 @@ import dask.dataframe as dd
 from uri import *
 
 # tweet-triples
-tweet = pd.read_csv('./tweet-triples.csv',index_col=None);print('len(tweet-triples):',len(tweet))
+tweet = pd.read_csv('./tweet-triples.csv',index_col=None,names=['start','rel','end'])
+print('len(tweet):',len(tweet))
+# rel transform
+tweet.rel = tweet.rel.str.replace('/r/tweet/Cause','/r/tweet/ner/cause')
+tweet.rel = tweet.rel.str.replace('/r/tweet/IsA','/r/tweet/ner/IsA')
+print('len(tweet):',len(tweet))
+# validation
+import re
+re_valid_phrase = re.compile('^/c/en/[a-z]+_?[a-z]+$')
 
-# count triple for filter
-tweet['triple'] = tweet['head']+';'+tweet['rel']+';'+tweet['tail']
+def valid_phrase(s):
+    return True if re_valid_phrase.match(s) else False
+
+tweet = tweet[tweet.start.apply(lambda x:valid_phrase(x))]\
+                [tweet.end.apply(lambda x:valid_phrase(x))]\
+                [tweet.rel.str.startswith('/r/tweet')]
+tweet['triple'] = tweet['start']+';'+tweet['rel']+';'+tweet['end']
 tweet_triple_count = tweet.groupby('triple').size()
+
+print('len(tweet):',len(tweet))
+
+# count triple
 tweet_new = pd.DataFrame()
 tweet_new['triple'] = tweet_triple_count.keys()
 tweet_new['triple_count'] = tweet_triple_count.values
@@ -18,26 +35,23 @@ tweet_new['start'] = tweet_new.triple.apply(lambda x:x.split(';')[0])
 tweet_new['rel'] = tweet_new.triple.apply(lambda x:x.split(';')[1])
 tweet_new['end'] = tweet_new.triple.apply(lambda x:x.split(';')[2])
 tweet_new['weight'] = tweet_new.triple_count.apply(lambda x:x/len(tweet_new))
-tweet_new['start_label'] = tweet_new['start'].apply(uri_to_label)
-tweet_new['end_label'] = tweet_new['end'].apply(uri_to_label)
-tweet_new['start_end_label'] = tweet_new['start_label']+tweet_new['end_label']
 
-# char filter
-invalid = set('[!"#$%&\'()*+,-.:;<=>?@®【[\\] ^`{|}~0123456789]')
-def is_valid_phrase(s):
-    return False if set(s)&invalid else True
-tweet_new = tweet_new[tweet_new.start_end_label.apply(lambda x:is_valid_phrase(x))]\
-                    #[tweet_new.start != '/c/en/']\ 
-                    [tweet_new.start.apply(lambda x: x!='/c/en' or len(x)>0)]\
-                    [tweet_new.rel.str.startswith('/r/tweet')]
 print('len(tweet_new):',len(tweet_new))
 
-# vocab 
-vocabs = list(tweet_new.start.map(lambda x:x.split('/')[-1])) + list(tweet_new.end.map(lambda x:x.split('/')[-1]))
+# vocabs_count_threshold 
+vocabs = list(tweet_new.start) + list(tweet_new.end)
+vocabs_count = Counter(vocabs);print('len(vocabs):',len(vocabs_count.keys()))
+vocabs_count_threshold = {k:v for k,v in vocabs_count.items() if v>50}
+tweet_new = tweet_new[tweet_new.start.apply(lambda x:x in vocabs_count_threshold)]
+tweet_new = tweet_new[tweet_new.end.apply(lambda x:x in vocabs_count_threshold)]
+
+# vocabs
+vocabs = list(tweet_new.start) + list(tweet_new.end)
 vocabs_count = Counter(vocabs);print('len(vocabs):',len(vocabs_count.keys()))
 with codecs.open('./tweet-vocabs.json','a+',encoding='utf-8') as f:
     json.dump(vocabs_count,f,indent=2)
 
+'''
 # ccn
 ccn = pd.read_csv('./ccn-triples.csv',names=['start','rel','end','weight'],encoding='utf-8');print('len(ccn-triples):',len(ccn))
 ccn['start_label'] = ccn['start'].apply(uri_to_label)
@@ -47,16 +61,17 @@ vocab = set(vocabs_count.keys())
 ccn_new = ccn[ccn.start_label.apply(lambda x:x in vocab)]\
             [ccn.end_label.apply(lambda x:x in vocab)]
 print('len(ccn_new):',len(ccn_new))
+'''
 
 # merge
-merge  = pd.concat([tweet_new[['start_label','rel','end_label','weight']],\
-                ccn_new[['start_label','rel','end_label','weight']]],ignore_index=True)
+merge  = tweet_new
+
 print('len(merge):',len(merge))
 
 # rel count filter
 rel_count = merge.groupby(['rel']).size()
 #rel_count.sort_values(ascending=False)
-min_rel_count = 25
+min_rel_count = 250
 max_rel_count = 100000
 # %matplotlib inline
 # rel_count.value_counts().plot()
@@ -64,7 +79,7 @@ evidence_rel = list(rel_count[rel_count>min_rel_count]\
                              [rel_count<max_rel_count].sort_values(ascending=False).keys())
 
 # df_kgr_all
-merge.rename(index=str, columns={'start_label':'start','end_label':'end'},inplace=True)
+#merge.rename(index=str, columns={'start_label':'start','end_label':'end'},inplace=True)
 df_kgr = merge[merge.rel.isin(evidence_rel)];print('len(df_kgr):{}'.format(len(df_kgr)))
 kgr_inv = [{'start':row[1]['end'],'rel':row[1]['rel']+'_inv','end':row[1]['start'],'weight':row[1]['weight']} for row in df_kgr.iterrows()]
 df_kgr_inv = pd.DataFrame.from_records(kgr_inv)
@@ -100,8 +115,11 @@ f_train.close()
 
 # task
 task_rels = ['/r/tweet/open/cause','/r/tweet/open/kill',\
-            '/r/tweet/open/hit','/r/tweet/IsA','/r/Causes',\
-            '/r/IsA','/r/AtLocation','/r/HasSubevent']
+             '/r/tweet/open/hit','/r/tweet/open/strike',\
+             '/r/tweet/open/attack','/r/tweet/open/shoot',\
+            '/r/tweet/open/destroy','/r/tweet/open/injure',\
+            '/r/tweet/open/condemn','/r/tweet/open/threaten'
+            ]
 
 def rel_filter(df_kgr_all,task_rel):
     train_pos = df_kgr_all[df_kgr_all.rel == task_rel];print('len(train_pos):',task_rel,len(train_pos))

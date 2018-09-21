@@ -114,17 +114,17 @@ def get_sentence_triples(sentence):
         else:
             if ent['tokenBegin'] == ent['tokenEnd']:
                 tokens_dict[ent['tokenBegin']]['token'].append(ent['ner'])
-                entity_triples.append(('/c/en/'+tokens_dict[ent['tokenBegin']]['token'][0],'/r/tweet/IsA','/c/en/'+ent['ner']))
+                entity_triples.append(('/c/en/'+tokens_dict[ent['tokenBegin']]['token'][0],'/r/tweet/ner/IsA','/c/en/'+ent['ner']))
                 if ent['ner'] == 'cause_of_death':
-                    entity_triples.append(('/c/en/'+tokens_dict[ent['tokenBegin']]['token'][0],'/r/tweet/Cause','/c/en/death'))
+                    entity_triples.append(('/c/en/'+tokens_dict[ent['tokenBegin']]['token'][0],'/r/tweet/ner/cause','/c/en/death'))
             else:
                 ner_phrases = get_ner_phrase(ent['text'])
                 for phrase in ner_phrases:
-                    if ent['ner'] == 'cause_of_death':entity_triples.append(('/c/en/'+phrase,'/r/tweet/Cause','/c/en/'+'death'))
-                    entity_triples.append(('/c/en/'+phrase,'/r/tweet/IsA','/c/en/'+ent['ner']))
+                    if ent['ner'] == 'cause_of_death':entity_triples.append(('/c/en/'+phrase,'/r/tweet/ner/cause','/c/en/'+'death'))
+                    entity_triples.append(('/c/en/'+phrase,'/r/tweet/ner/IsA','/c/en/'+ent['ner']))
                 for i in range(len(ner_phrases)):
                     for j in range(i+1,len(ner_phrases)):
-                        entity_triples.append(('/c/en/'+ner_phrases[j],'/r/tweet/IsA','/c/en/'+ner_phrases[i]))
+                        entity_triples.append(('/c/en/'+ner_phrases[j],'/r/tweet/ner/IsA','/c/en/'+ner_phrases[i]))
                 com_phrases = []
                 if ent['tokenEnd'] in headword.keys():
                     tokens = [tokens_dict[t]['token'][0] for t in headword[ent['tokenEnd']]] + [tokens_dict[ent['tokenEnd']]['token'][0]]
