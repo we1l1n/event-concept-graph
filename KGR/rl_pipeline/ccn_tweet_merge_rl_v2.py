@@ -71,7 +71,7 @@ print('len(merge):',len(merge))
 # rel count filter
 rel_count = merge.groupby(['rel']).size()
 #rel_count.sort_values(ascending=False)
-min_rel_count = 250
+min_rel_count = 100
 max_rel_count = 100000
 # %matplotlib inline
 # rel_count.value_counts().plot()
@@ -84,7 +84,7 @@ df_kgr = merge[merge.rel.isin(evidence_rel)];print('len(df_kgr):{}'.format(len(d
 kgr_inv = [{'start':row[1]['end'],'rel':row[1]['rel']+'_inv','end':row[1]['start'],'weight':row[1]['weight']} for row in df_kgr.iterrows()]
 df_kgr_inv = pd.DataFrame.from_records(kgr_inv)
 df_kgr_all = pd.concat([df_kgr,df_kgr_inv],ignore_index=True)
-df_kgr_all[['start','end','rel']].to_csv('./kb_env_rl.txt',sep='\t',index=False,header=False,encoding='utf-8')
+df_kgr_all.sort_values(by='weight',ascending=False)[['start','end','rel','weight']].to_csv('./kb_env_rl.txt',sep='\t',index=False,header=False,encoding='utf-8')
 print('len(df_kgr_all):{}'.format(len(df_kgr_all)))
 
 # X2id
@@ -124,6 +124,6 @@ task_rels = ['/r/tweet/open/cause','/r/tweet/open/kill',\
 def rel_filter(df_kgr_all,task_rel):
     train_pos = df_kgr_all[df_kgr_all.rel == task_rel];print('len(train_pos):',task_rel,len(train_pos))
     rel_path = task_rel.replace('/','_')
-    train_pos[['start','end','rel']].to_csv(rel_path+'_train_pos',sep='\t',header=False,index=False,encoding='utf-8')
+    train_pos.sort_values(by='weight',ascending=False)[['start','end','rel','weight']].to_csv(rel_path+'_train_pos',sep='\t',header=False,index=False,encoding='utf-8')
 
 [rel_filter(df_kgr_all,task_rel) for task_rel in task_rels]

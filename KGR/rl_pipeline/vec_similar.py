@@ -31,11 +31,11 @@ wv_ent = KeyedVectors.load_word2vec_format('./entity2vec.txt', binary=False)
 wv_ent.save_word2vec_format('./entity2vec.bin',binary=True)
 # annoy index
 wv_ent = KeyedVectors.load_word2vec_format('./entity2vec.bin',binary=True)
-annoy_index_ent = AnnoyIndexer(wv,200)
+annoy_index_ent = AnnoyIndexer(wv_ent,200)
 annoy_index_ent.save('./entity2vec.index')
 # rel
 wv_rel = KeyedVectors.load_word2vec_format('./relation2vec.txt', binary=False)
 wv_rel.save_word2vec_format('./relation2vec.bin',binary=True)
 wv_rel = KeyedVectors.load_word2vec_format('./relation2vec.bin',binary=True)
-annoy_index_rel = AnnoyIndexer(wv,200)
+annoy_index_rel = AnnoyIndexer(wv_rel,200)
 annoy_index_rel.save('./relation2vec.index')

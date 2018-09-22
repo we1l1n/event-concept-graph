@@ -49,13 +49,13 @@ class KB(object):
     def __init__(self):
         self.entities = {}  # {'实体id':[Path.{relation,entity2},]}
 
-    def addRelation(self, entity1, relation, entity2):
+    def addRelation(self, entity1, relation, entity2, weight):
         # add direct connections
         if entity1 in self.entities.keys():
-            self.entities[entity1].append(Path(relation, entity2))
+            self.entities[entity1].append(Path(relation, entity2, weight))
         else:
             # entities{entity1：Path{.relation.connected_entity}}
-            self.entities[entity1] = [Path(relation, entity2)]
+            self.entities[entity1] = [Path(relation, entity2, weight)]
 
     def getPathsFrom(self, entity):
         return self.entities[entity]
@@ -92,9 +92,10 @@ class KB(object):
 
 
 class Path(object):
-    def __init__(self, relation, connected_entity):
+    def __init__(self, relation, connected_entity, weight):
         self.relation = relation
         self.connected_entity = connected_entity
+        self.weight = weight
 
     def __str__(self):
         return "rel:{},next_entity:{}".format(self.relation, self.connected_entity)
@@ -113,17 +114,18 @@ class foundPaths(object):
     def isFound(self, entity):
         return self.entities[entity][0]
 
-    def markFound(self, entity, prevNode, relation):
-        self.entities[entity] = (True, prevNode, relation)
+    def markFound(self, entity, prevNode, relation, weight):
+        self.entities[entity] = (True, prevNode, relation, weight)
 
     def reconstructPath(self, entity1, entity2):  # after BFS
-        curNode, entity_list, path_list = entity2, [entity2], []  # from tail
+        curNode, entity_list, path_list,weight_list = entity2, [entity2], [], []  # from tail
         while(curNode != entity1):       # status:(isFound,prevNode, relation)
             path_list.append(self.entities[curNode][2])  # relation
+            weight_list.append(self.entities[curNode][3])
             curNode = self.entities[curNode][1]         # prevNode
             entity_list.append(curNode)
             if len(entity_list)!=len(set(entity_list)):return [],[]
-        return entity_list[::-1], path_list[::-1]
+        return entity_list[::-1], path_list[::-1], weight_list[::-1]
 
     def __str__(self):
         return ''.join([entity + "[{},{},{}]".format(status[0], status[1], status[2])
@@ -136,7 +138,7 @@ def BFS(kb, entity1, entity2, num_paths=1,max_steps=5):
     output: (True, entity_list, path_list)
     '''
     path_finder = foundPaths(
-        copy(kb_status)); path_finder.markFound(entity1, None, None)
+        copy(kb_status)); path_finder.markFound(entity1, None, None, None)
     q = Queue(); q.put(entity1)
     entity_lists, path_lists = [], []
     step = 0
@@ -153,23 +155,24 @@ def BFS(kb, entity1, entity2, num_paths=1,max_steps=5):
         print('step:{},len(curNodes):{}'.format(step,len(curNodes)))
         for curNode in curNodes:
             for path in kb.getPathsFrom(curNode):  # get connections
-                connectRelation, nextEntity = path.relation, path.connected_entity
+                connectRelation, nextEntity, weight = path.relation, path.connected_entity, path.weight
                 if(not path_finder.isFound(nextEntity)):  # put for continue search
                     q.put(nextEntity)
-                    path_finder.markFound(nextEntity, curNode, connectRelation)
+                    path_finder.markFound(nextEntity, curNode, connectRelation, weight)
                 if(nextEntity == entity2):  # arrive tail
-                    path_finder.markFound(nextEntity, curNode, connectRelation)
-                    entity_list, path_list = path_finder.reconstructPath(
+                    path_finder.markFound(nextEntity, curNode, connectRelation, weight)
+                    entity_list, path_list, weight_list = path_finder.reconstructPath(
                         entity1, entity2)
-                    if num_paths == 1: return (1, entity_list, path_list)
+                    if num_paths == 1: return (1, entity_list, path_list, weight_list)
                     else:
                         if len(entity_lists) == num_paths:
-                            return (num_paths, entity_lists, path_lists)
+                            return (num_paths, entity_lists, path_lists, weight_list)
                         else:
-                            entity_lists.append(
-                                entity_list); path_lists.append(path_list)
+                            entity_lists.append(entity_list)
+                            path_lists.append(path_list)
+                            weight_lists.append(weight_list)
 
-    return (len(entity_lists), entity_lists, path_lists)
+    return (len(entity_lists), entity_lists, path_lists, weight_lists)
 ####################################################################################################################
 # ENV
 
@@ -184,6 +187,7 @@ class Env(object):
         self.relation2id_ = dict([(line.split()[0], int(line.split()[1])) for line in
                     codecs.open(data_path+'relation2id.txt', 'r', encoding='utf-8') if len(line.split()) == 2])
         print('len(self.relation2id_):',len(self.relation2id_))
+        print('self.relation2id_:',self.relation2id_)
         self.relations = list(self.relation2id_.keys())
         # global action_space;action_space = len(self.relations);print('global action_space:',action_space)
         embeddings = json.load(open(data_path+'E.vec.json', 'r'))
@@ -194,6 +198,7 @@ class Env(object):
         assert self.entity2vec.shape[0] == len(self.entity2id_);assert self.entity2vec.shape[1] == 100
         assert self.relation2vec.shape[0] == len(self.relation2id_);assert self.relation2vec.shape[1] == 100
 
+        self.weight = []
         self.path = []
         self.path_relations = []
 
@@ -205,6 +210,7 @@ class Env(object):
         #import pdb;pdb.set_trace()
 
         # reconstruct rel2id
+        '''
         relation2id_ = []
         relation2vec = []
         for rel in zip(self.relation2id_.items(),self.relation2vec):
@@ -212,13 +218,16 @@ class Env(object):
                 relation2id_.append(rel[0][0])
                 relation2vec.append(rel[1])
         self.relation2id_ = dict([(relation2id_[i],i) for i in range(len(relation2id_))])
+        print('self.relation2id_:',self.relation2id_)
         self.relations = list(self.relation2id_.keys())
         self.relation2vec = np.array(relation2vec)
+        '''
 
 
         # valid actions
         self.valid_actions_ = defaultdict(dict)
-        [self.valid_actions_[self.entity2id_[line.split()[0]]].update({line.split()[1]:self.relation2id_[line.split()[2]]})
+        [self.valid_actions_[self.entity2id_[line.split()[0]]].update(\
+                            {line.split()[1]:(self.relation2id_[line.split()[2]],float(line.split()[3]))})
         for line in codecs.open(data_path+'kb_env_rl.txt', 'r', encoding='utf-8')
         #if len(line.split()) == 3 and line.split()[2] != relation and line.split()[2] != relation+'_inv']  # and line.split()[0] in self.entity2id_.keys()]
         if len(line.split()) == 3 and line.split()[2] in evidence_rel]
@@ -235,13 +244,14 @@ class Env(object):
         done = 0  # Whether the episode has finished
         curr_pos, target_pos = state[:-1]
         chosed_relation = self.relations[action]
-        # print(f'action:{chosed_relation}')
+        print(f'action:{chosed_relation}')
         print(f'chosed_action_id:{action}')
         # self.get_valid_actions(curr_pos)
         valid_actions = self.valid_actions_[curr_pos]
+        print(f'valid_actions:{valid_actions}')
         valid_actions_id = set(valid_actions.values())
         print(f'valid_actions_id:{valid_actions_id}')
-        choices = [entity for entity, rel_id in valid_actions.items()
+        choices = [(entity,rel[1]) for entity, rel in valid_actions.items()
                                                                     if action == rel_id]
         if len(choices) == 0:
             reward = -1
@@ -250,7 +260,8 @@ class Env(object):
             next_state[-1] = self.die
             return (reward, next_state, done)
         else:  # find a valid step
-            next_pos = random.choice(choices)
+            next_pos,weight = random.choice(choices)
+            self.weight.append(weight)
             self.path.append(chosed_relation + ' -> ' + next_pos)
             self.path_relations.append(chosed_relation)
             print('Find a valid step:', next_pos, 'Action index:', action)
@@ -287,6 +298,11 @@ class Env(object):
 ####################################################################################################################
 # TEACHER
 
+def quality_reward(weight):
+    if isinstance(weight,list):
+        return sum([1/(-np.log2(p)) for p in weight])/len(weight)
+    else:
+        return 1/(-np.log2(weight))
 
 def bfs_teacher(e1, e2, num_paths, env, kb):
     # BFS path collect
@@ -294,8 +310,11 @@ def bfs_teacher(e1, e2, num_paths, env, kb):
     # suc2, entity_lists2, path_lists2 = BFS(kb, e2, e1,num_paths=num_paths//2);print(f'{suc2}:BFS backward done')
     # entity_lists = entity_lists1+entity_lists2
     # path_lists = path_lists1+path_lists2
-    suc, entity_lists, path_lists = BFS(
+    suc, entity_lists, path_lists, weight_lists = BFS(
         kb, e1, e2, num_paths=num_paths); print(f'{suc}:RAW BFS done')
+    mean_step_bfs = (count_bfs*mean_step_bfs + len(path_lists))/(count_bfs+1)
+    count_bfs += 1
+
     #print('len(entities):', len(entity_lists)); print(entity_lists)
     #print('len(paths):', len(path_lists)); print(path_lists)
     path_strs = [''.join([e+'->'+p+'->' for e, p in zip(entity_list[:-1], path_list)]) +
@@ -305,7 +324,7 @@ def bfs_teacher(e1, e2, num_paths, env, kb):
     print('collect episodes')
     good_episodes=[]
     targetID=env.entity2id_[e2]
-    for path in zip(entity_lists, path_lists):
+    for path in zip(entity_lists, path_lists, weight_lists):
         good_episode=[]
         for i in range(len(path[0]) - 1):
             currID=env.entity2id_[
@@ -315,24 +334,26 @@ def bfs_teacher(e1, e2, num_paths, env, kb):
             good_episode.append(Transition(state=env.idx_state(state_curr),\
                                            action=actionID, \
                                            next_state=env.idx_state(state_next), \
-                                           reward=1))  # each time step reward==1
+                                           reward=quality_reward(path[2][i])))
+                                           #reward=1))  # each time step reward==1
         good_episodes.append(good_episode)
     return good_episodes
 
-def bibfs_teacher(e1, e2, num_paths, env, kb):
+def bibfs_teacher(e1, e2, num_paths, env, kb, by='embed'):
     # Bi-BFS path collect
     intermediates=kb.pickRandomIntermediatesBetween(
-        e1, e2, num_paths, by='embed') # by='symbol'
+        e1, e2, num_paths, by=by) # by='symbol'
     print('intermediates:', intermediates)
-    entity_lists=[]; path_lists=[]
+    entity_lists=[]; path_lists=[]; weight_lists = []
     for i in range(num_paths):
-        suc1, entity_list1, path_list1=BFS(
+        suc1, entity_list1, path_list1, weight_list1=BFS(
             kb, e1, intermediates[i])#; print(f'{i}:BFS left done')
-        suc2, entity_list2, path_list2=BFS(
+        suc2, entity_list2, path_list2, weight_list2=BFS(
             kb, intermediates[i], e2)#; print(f'{i}:BFS right done')
         if suc1 and suc2:
             entity_lists.append(entity_list1 + entity_list2[1:])
             path_lists.append(path_list1 + path_list2)
+            weight_lists.append(weight_list1 + weight_list2)
     print('BIBFS found paths:', len(path_lists))
     # clean the path
     # duplicate
@@ -340,8 +361,9 @@ def bibfs_teacher(e1, e2, num_paths, env, kb):
     print('path clean')
     entity_lists_new=[]
     path_lists_new=[]
-    for entities, relations in zip(entity_lists, path_lists):
-        path=[entities[int(i/2)] if i % 2 == 0 else relations[int(i/2)]\
+    weight_lists_new = []
+    for entities, relations, weights in zip(entity_lists, path_lists, weight_lists):
+        path=[entities[int(i/2)] if i % 2 == 0 else (relations[int(i/2)],weights[int(i/2)])\
                     for i in range(len(entities)+len(relations))]
         entity_stats=Counter(entities).items()
         duplicate_ents=[item for item in entity_stats if item[1] != 1]
@@ -356,15 +378,24 @@ def bibfs_teacher(e1, e2, num_paths, env, kb):
                     path=path[:min_idx] + path[max_idx:]
         entities_new=[]
         relations_new=[]
+        weights_new = []
         for idx, item in enumerate(path):
             if idx % 2 == 0:
                 entities_new.append(item)
             else:
-                relations_new.append(item)
-        entity_lists_new.append(
-            entities_new); path_lists_new.append(relations_new)
+                relations_new.append(item[0])
+                weights_new.append(item[1])
+        entity_lists_new.append(entities_new)
+        path_lists_new.append(relations_new)
+        weight_lists_new.append(weights_new)
     #print('len(entities):', len(entity_lists_new),
     #      'len(paths):', len(path_lists_new))
+    if by == 'embed':
+        mean_step_bibfs_vec = (count_bibfs_vec*mean_step_bibfs_vec + len(path_lists_new))/(count_bibfs_vec+1)
+        count_bibfs_vec += 1
+    else:
+        mean_step_bibfs_random = (count_bibfs_random*mean_step_bibfs_random + len(path_lists_new))/(count_bibfs_random+1)
+        count_bibfs_random += 1
     path_strs = [''.join([e+'->'+p+'->' for e, p in zip(entity_list[:-1], path_list)]) +
                          entity_list[-1] for entity_list, path_list in zip(entity_lists_new, path_lists_new)]
     print('\n'.join(sorted(path_strs)))
@@ -372,7 +403,7 @@ def bibfs_teacher(e1, e2, num_paths, env, kb):
     print('collect episodes')
     good_episodes=[]
     targetID=env.entity2id_[e2]
-    for path in zip(entity_lists_new, path_lists_new):
+    for path in zip(entity_lists_new, path_lists_new, weight_lists_new):
         good_episode=[]
         for i in range(len(path[0]) - 1):
             currID=env.entity2id_[
@@ -382,7 +413,8 @@ def bibfs_teacher(e1, e2, num_paths, env, kb):
             good_episode.append(Transition(state=env.idx_state(state_curr),\
                                            action=actionID, \
                                            next_state=env.idx_state(state_next), \
-                                           reward=1))  # each time step reward==1
+                                           reward=quality_reward(path[2][i])))
+                                           #reward=1))  # each time step reward==1
         good_episodes.append(good_episode)
     return good_episodes
 
@@ -512,7 +544,10 @@ def sl_train(episodes=500):
                     bibfs_episodes=bibfs_teacher(
                     sample[0], sample[1], num_paths, env, kb)
                     print('len(bibfs_episodes):',len(bibfs_episodes))
-                    good_episodes = bfs_episodes+bibfs_episodes
+                    bibfs_random_episodes=bibfs_teacher(
+                    sample[0], sample[1], num_paths, env, kb, by='symbol')
+                    print('len(bibfs_episodes):',len(bibfs_random_episodes))
+                    good_episodes = bfs_episodes+bibfs_episodes+bibfs_random_episodes
             except Exception as e:
                 print('Cannot find a path');good_episodes=[] ;continue
             for item in good_episodes:  # one episode one supervised batch*<state,action> to update theta
@@ -540,7 +575,7 @@ def sl_test(episodes=300):
             except: continue
             sample=test_pairs[episode].split()
             # reset env path
-            env.path, env.path_relations=[], []
+            env.weight, env.path, env.path_relations = [], [], []
             state_idx=[env.entity2id_[sample[0]], env.entity2id_[sample[1]], 0]
             for t in count():
                 state_vec=env.idx_state(state_idx)
@@ -551,6 +586,8 @@ def sl_test(episodes=300):
                 if done or t == max_steps_test:
                     if done:
                         print('Success')
+                        mean_step_sl = (count_sl*mean_step_sl + len(env.path_relations))/(count_sl+1)
+                        count_sl += 1
                         success += 1
                     print(f'success:{success},Episode ends')
                     break
@@ -606,7 +643,7 @@ def REINFORCE(train_pairs, policy_nn, num_episodes):
             'Training sample: ', train_pairs[i_episode][:-1])
         sample=train_pairs[i_episode].split()
         # reset env path
-        env.path, env.path_relations=[], []
+        env.weight, env.path, env.path_relations = [], [], []
         state_idx=[env.entity2id_[sample[0]], env.entity2id_[sample[1]], 0]
         episode, state_batch_negative, action_batch_negative=[], [], []
         for t in count():
@@ -647,12 +684,13 @@ def REINFORCE(train_pairs, policy_nn, num_episodes):
             print('Success')
             path_found.append(path_clean(' -> '.join(env.path)))
             success += 1
-            length_reward, global_reward=1/len(env.path), 1
-            total_reward=0.1*global_reward + 0.9*length_reward
+            length_reward, global_reward = 1/len(env.path), 1
+            #total_reward=0.1*global_reward + 0.9*length_reward
+            total_reward= 0.3*global_reward + 0.3*length_reward + 0.4*quality_reward(env.weight)
             update_episode(policy_nn, episode, total_reward)
             print('total_reward success')
         else:
-            global_reward=-0.05
+            global_reward=-0.5 #0.05->0.5
             update_episode(policy_nn, episode, global_reward)
             print('Failed, Do one teacher guideline')
             try:
@@ -710,7 +748,7 @@ def rl_test(episodes=500):
             print('Test sample %d: %s' % (episode, test_pairs[episode][:-1]))
             sample=test_pairs[episode].split()
             # reset env path
-            env.path, env.path_relations=[], []
+            env.weight, env.path, env.path_relations = [], [], []
             state_idx=[env.entity2id_[sample[0]], env.entity2id_[sample[1]], 0]
             transitions=[]
             for t in count():
@@ -728,6 +766,8 @@ def rl_test(episodes=500):
                 if done or t == max_steps_test:
                     if done:
                         success += 1; print("Success")
+                        mean_step_rl = (count_rl*mean_step_rl + len(env.path_relations))/(count_rl+1)
+                        count_rl += 1
                         path_found.append(path_clean(' -> '.join(env.path)))
                     else:
                         print('Episode ends due to step limit')
@@ -775,7 +815,7 @@ def rl_test(episodes=500):
 ####################################################################################################################
 # MAIN
 # relation = '/r/tweet/open/cause'
-relation='/r/tweet/open/cause'
+relation='/r/tweet/open/kill'
 rel_path=relation.replace('/', '_')
 data_path='./'
 task_path=data_path + 'tasks/' + rel_path + '/'
@@ -804,9 +844,14 @@ annoy_index_rel.load('relation2vec.index')
 annoy_index_rel.model = wv_rel
 
 evidence_num = 1000
-evidence_rel = [r for r,p in wv_rel.most_similar(positive=[relation],topn=evidence_num,indexer=annoy_index_rel)][1:]
+evidence_rel = [r for r,p in wv_rel.most_similar(positive=[relation],topn=evidence_num,indexer=annoy_index_rel)]
+
+# evidence control
+evidence_rel = [ev_rel for ev_rel in evidence_rel if ev_rel.startswith('/r/tweet/open/')]
+
+evidence_rel.remove(relation);evidence_rel.remove(relation+'_inv')
 print('evidence_rel:{0}'.format(evidence_rel))
-print('len(evidence_rel:{0})'.format(len(evidence_rel)))
+print('len(evidence_rel):{0}'.format(len(evidence_rel)))
 
 # env kb
 env=Env(data_path, relation)
@@ -814,10 +859,10 @@ kb=KB()
 #[kb.addRelation(line.rsplit()[0], line.rsplit()[2], line.rsplit()[1]) \
 #    for line in codecs.open(data_path+'kb_env_rl.txt', 'r', encoding='utf-8')\
 #    if len(line.split()) == 3 and line.split()[2] != relation and line.split()[2] != relation+'_inv']
-[kb.addRelation(line.rsplit()[0], line.rsplit()[2], line.rsplit()[1]) \
+[kb.addRelation(line.rsplit()[0], line.rsplit()[2], line.rsplit()[1], float(line.rsplit()[2])) \
     for line in codecs.open(data_path+'kb_env_rl.txt', 'r', encoding='utf-8')\
     if len(line.split()) == 3 and line.split()[2] in evidence_rel]
-kb_status=dict([(entity, (False, '', '')) for entity in kb.entities.keys()])
+kb_status=dict([(entity, (False, '', '', '')) for entity in kb.entities.keys()])
 
 # key parameter
 action_space=len(evidence_rel)
@@ -825,6 +870,20 @@ num_paths=10
 teacher_num_paths=3
 max_steps = 50
 max_steps_test = 50
+
+# experiments log
+mean_step_bfs = 0
+count_bfs = 0
+mean_step_bibfs_vec = 0
+count_bibfs_vec = 0
+mean_step_bibfs_random = 0
+count_bibfs = 0
+mean_step_sl = 0
+count_sl = 0
+mean_step_rl = 0
+count_rl = 0
+
+
 
 def training_pipeline(pipeline=4,
                     sl_train_episodes=1000,
@@ -834,10 +893,26 @@ def training_pipeline(pipeline=4,
     '''
     python rl_path_find.py 4 1000 1000 1000 1000
     '''
+    # experiment settings
+    f_logs.write('experiment settings:\n')
+    f_logs.write('evidence_num:'+str(evidence_num)+'\n')
+    f_logs.write('action_space:'+str(action_space)+'\n')
+    f_logs.write('num_paths:'+str(num_paths)+'\n')
+    f_logs.write('teacher_num_paths:'+str(teacher_num_paths)+'\n')
+    f_logs.write('max_steps:'+str(max_steps)+'\n')
+    f_logs.write('max_steps_test:'+str(max_steps_test)+'\n')
+    # train pipeline
     sl_train(sl_train_episodes) if pipeline > 3 else ''
     sl_test(sl_test_episodes) if pipeline > 2 else ''
     rl_retrain(rl_retrain_episodes) if pipeline > 1 else ''
     rl_test(rl_test_episodes) if pipeline > 0 else ''
+    # len(path) distribution
+    f_logs('len(path) distribution:\n')
+    f_logs.write(str(mean_step_bfs)+'\n')
+    f_logs.write(str(mean_step_bibfs_vec)+'\n')
+    f_logs.write(str(mean_step_bibfs_random)+'\n')
+    f_logs.write(str(mean_step_sl)+'\n')
+    f_logs.write(str(mean_step_rl)+'\n')
 
 if __name__ == '__main__':
     import fire
