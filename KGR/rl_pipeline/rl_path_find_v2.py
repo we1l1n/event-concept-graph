@@ -58,6 +58,7 @@ class KB(object):
             self.entities[entity1] = [Path(relation, entity2, weight)]
 
     def getPathsFrom(self, entity):
+        #import pdb;pdb.set_trace()
         return self.entities[entity]
 
     def removePath(self, entity1, entity2):
@@ -140,7 +141,7 @@ def BFS(kb, entity1, entity2, num_paths=1,max_steps=5):
     path_finder = foundPaths(
         copy(kb_status)); path_finder.markFound(entity1, None, None, None)
     q = Queue(); q.put(entity1)
-    entity_lists, path_lists = [], []
+    entity_lists, path_lists, weight_lists = [], [], []
     step = 0
     print('BFS:{}->{}'.format(entity1,entity2))
     while(not q.empty() and step<=max_steps):
@@ -156,17 +157,18 @@ def BFS(kb, entity1, entity2, num_paths=1,max_steps=5):
         for curNode in curNodes:
             for path in kb.getPathsFrom(curNode):  # get connections
                 connectRelation, nextEntity, weight = path.relation, path.connected_entity, path.weight
-                if(not path_finder.isFound(nextEntity)):  # put for continue search
+                global evidence_rel
+                if(not path_finder.isFound(nextEntity)) and connectRelation in evidence_rel:  # put for continue search
                     q.put(nextEntity)
                     path_finder.markFound(nextEntity, curNode, connectRelation, weight)
-                if(nextEntity == entity2):  # arrive tail
+                if(nextEntity == entity2) and connectRelation in evidence_rel:  # arrive tail
                     path_finder.markFound(nextEntity, curNode, connectRelation, weight)
                     entity_list, path_list, weight_list = path_finder.reconstructPath(
                         entity1, entity2)
                     if num_paths == 1: return (1, entity_list, path_list, weight_list)
                     else:
                         if len(entity_lists) == num_paths:
-                            return (num_paths, entity_lists, path_lists, weight_list)
+                            return (num_paths, entity_lists, path_lists, weight_lists)
                         else:
                             entity_lists.append(entity_list)
                             path_lists.append(path_list)
@@ -230,7 +232,7 @@ class Env(object):
                             {line.split()[1]:(self.relation2id_[line.split()[2]],float(line.split()[3]))})
         for line in codecs.open(data_path+'kb_env_rl.txt', 'r', encoding='utf-8')
         #if len(line.split()) == 3 and line.split()[2] != relation and line.split()[2] != relation+'_inv']  # and line.split()[0] in self.entity2id_.keys()]
-        if len(line.split()) == 3 and line.split()[2] in evidence_rel]
+        if len(line.split()) == 4 and line.split()[2] in evidence_rel]
 
         self.die = 0  # record how many times does the agent choose an invalid path
 
@@ -248,16 +250,17 @@ class Env(object):
         print(f'chosed_action_id:{action}')
         # self.get_valid_actions(curr_pos)
         valid_actions = self.valid_actions_[curr_pos]
-        print(f'valid_actions:{valid_actions}')
-        valid_actions_id = set(valid_actions.values())
+        #print(f'valid_actions:{valid_actions}')
+        valid_actions_id = set([v[0] for v in valid_actions.values()])
         print(f'valid_actions_id:{valid_actions_id}')
         choices = [(entity,rel[1]) for entity, rel in valid_actions.items()
-                                                                    if action == rel_id]
+                                                                    if action == rel[0]]
         if len(choices) == 0:
             reward = -1
             self.die += 1
             next_state = state  # stay in the initial state
             next_state[-1] = self.die
+            print('dead step')
             return (reward, next_state, done)
         else:  # find a valid step
             next_pos,weight = random.choice(choices)
@@ -311,14 +314,18 @@ def bfs_teacher(e1, e2, num_paths, env, kb):
     # entity_lists = entity_lists1+entity_lists2
     # path_lists = path_lists1+path_lists2
     suc, entity_lists, path_lists, weight_lists = BFS(
-        kb, e1, e2, num_paths=num_paths); print(f'{suc}:RAW BFS done')
-    mean_step_bfs = (count_bfs*mean_step_bfs + len(path_lists))/(count_bfs+1)
+        kb, e1, e2, num_paths=num_paths); print(f'RAW BFS found paths:{suc}')
+    global mean_step_bfs
+    global count_bfs
+    path_lens = mean_step_bfs if not path_lists else sum([len(path) for path in path_lists])/len(path_lists)
+    mean_step_bfs = (count_bfs*mean_step_bfs + path_lens)/(count_bfs+1)
     count_bfs += 1
+    print(f'mean_step_bfs:{mean_step_bfs},count_bfs:{count_bfs}')
 
     #print('len(entities):', len(entity_lists)); print(entity_lists)
     #print('len(paths):', len(path_lists)); print(path_lists)
-    path_strs = [''.join([e+'->'+p+'->' for e, p in zip(entity_list[:-1], path_list)]) +
-                         entity_list[-1] for entity_list, path_list in zip(entity_lists, path_lists)]
+    path_strs = [''.join([e+'->'+p+'('+str(w)+')->' for e, p ,w in zip(entity_list[:-1], path_list, weight_list)]) +
+                         entity_list[-1] for entity_list, path_list, weight_list in zip(entity_lists, path_lists, weight_lists)]
     print('\n'.join(sorted(path_strs)))
     # episodes
     print('collect episodes')
@@ -331,6 +338,7 @@ def bfs_teacher(e1, e2, num_paths, env, kb):
                 path[0][i]]; nextID=env.entity2id_[path[0][i+1]]
             state_curr=[currID, targetID, 0]; state_next=[nextID, targetID, 0]
             actionID=env.relation2id_[path[1][i]]
+            #import pdb;pdb.set_trace()
             good_episode.append(Transition(state=env.idx_state(state_curr),\
                                            action=actionID, \
                                            next_state=env.idx_state(state_next), \
@@ -354,7 +362,7 @@ def bibfs_teacher(e1, e2, num_paths, env, kb, by='embed'):
             entity_lists.append(entity_list1 + entity_list2[1:])
             path_lists.append(path_list1 + path_list2)
             weight_lists.append(weight_list1 + weight_list2)
-    print('BIBFS found paths:', len(path_lists))
+    print(by+' BIBFS found paths:', len(path_lists))
     # clean the path
     # duplicate
     # drop [min:max]
@@ -391,13 +399,21 @@ def bibfs_teacher(e1, e2, num_paths, env, kb, by='embed'):
     #print('len(entities):', len(entity_lists_new),
     #      'len(paths):', len(path_lists_new))
     if by == 'embed':
-        mean_step_bibfs_vec = (count_bibfs_vec*mean_step_bibfs_vec + len(path_lists_new))/(count_bibfs_vec+1)
+        global mean_step_bibfs_vec
+        global count_bibfs_vec
+        path_lens = mean_step_bibfs_vec if not path_lists else sum([len(path) for path in path_lists_new])/len(path_lists_new)
+        mean_step_bibfs_vec = (count_bibfs_vec*mean_step_bibfs_vec + path_lens)/(count_bibfs_vec+1)
         count_bibfs_vec += 1
+        print(f'mean_step_bibfs_vec:{mean_step_bibfs_vec},count_bibfs_vec:{count_bibfs_vec}')
     else:
-        mean_step_bibfs_random = (count_bibfs_random*mean_step_bibfs_random + len(path_lists_new))/(count_bibfs_random+1)
+        global mean_step_bibfs_random
+        global count_bibfs_random
+        path_lens = mean_step_bibfs_random if not path_lists else sum([len(path) for path in path_lists_new])/len(path_lists_new)
+        mean_step_bibfs_random = (count_bibfs_random*mean_step_bibfs_random + path_lens)/(count_bibfs_random+1)
         count_bibfs_random += 1
-    path_strs = [''.join([e+'->'+p+'->' for e, p in zip(entity_list[:-1], path_list)]) +
-                         entity_list[-1] for entity_list, path_list in zip(entity_lists_new, path_lists_new)]
+        print(f'mean_step_bibfs_random:{mean_step_bibfs_random},count_bibfs_random:{count_bibfs_random}')
+    path_strs = [''.join([e+'->'+p+'('+str(w)+')->' for e, p ,w in zip(entity_list[:-1], path_list, weight_list)]) +
+                         entity_list[-1] for entity_list, path_list, weight_list in zip(entity_lists_new, path_lists_new, weight_lists_new)]
     print('\n'.join(sorted(path_strs)))
     # episodes
     print('collect episodes')
@@ -522,7 +538,14 @@ class SupervisedPolicy(object):
         sess=sess or tf.get_default_session()
         _, loss=sess.run([self.train_op, self.loss], {
                          self.state: state, self.action: action})
-        print('loss:', loss)  # /state.shape[0])
+        #print('loss:', loss)  # /state.shape[0])
+        global mean_loss_sl
+        global count_loss_sl
+        global loss_sl
+        mean_loss_sl = (count_loss_sl*mean_loss_sl+loss)/(count_loss_sl+1)
+        count_loss_sl+=1
+        print(f'mean_loss_sl:{mean_loss_sl},count_loss_sl:{count_loss_sl}')
+        loss_sl.update({str(count_loss_sl):str(mean_loss_sl)})
         return loss
 
 def sl_train(episodes=500):
@@ -535,17 +558,19 @@ def sl_train(episodes=500):
             print("Episode %d" % episode); print(
                 'Training Sample:', train_pairs[episode % episodes][:-1])
             sample=train_pairs[episode % episodes].split()
+            good_episodes=[]
             try:
-                # good_episodes from teacher
+            # good_episodes from teacher
                 if sample[0] != sample[1]:
-                    bfs_episodes=bfs_teacher(
-                    sample[0], sample[1], num_paths, env, kb)
+                    bfs_episodes,bibfs_episodes,bibfs_random_episodes = [],[],[]
+                    if bfs_on:
+                        bfs_episodes=bfs_teacher(sample[0], sample[1], num_paths, env, kb)
                     print('len(bfs_episodes):',len(bfs_episodes))
-                    bibfs_episodes=bibfs_teacher(
-                    sample[0], sample[1], num_paths, env, kb)
+                    if bibfs_vec_on:
+                        bibfs_episodes=bibfs_teacher(sample[0], sample[1], num_paths, env, kb)
                     print('len(bibfs_episodes):',len(bibfs_episodes))
-                    bibfs_random_episodes=bibfs_teacher(
-                    sample[0], sample[1], num_paths, env, kb, by='symbol')
+                    if bibfs_random_on:
+                        bibfs_random_episodes=bibfs_teacher(sample[0], sample[1], num_paths, env, kb, by='symbol')
                     print('len(bibfs_episodes):',len(bibfs_random_episodes))
                     good_episodes = bfs_episodes+bibfs_episodes+bibfs_random_episodes
             except Exception as e:
@@ -562,7 +587,7 @@ def sl_train(episodes=500):
         print('Model saved')
 
 
-def sl_test(episodes=300):
+def sl_test(episodes=300,max_steps_test=50):
     tf.reset_default_graph()
     policy_nn=SupervisedPolicy()
     print('len(test_pairs):', len(test_pairs), 'test_episodes:', episodes)
@@ -586,16 +611,20 @@ def sl_test(episodes=300):
                 if done or t == max_steps_test:
                     if done:
                         print('Success')
+                        global mean_step_sl
+                        global count_sl
                         mean_step_sl = (count_sl*mean_step_sl + len(env.path_relations))/(count_sl+1)
                         count_sl += 1
+                        print(f'mean_step_sl:{mean_step_sl},count_sl:{count_sl}')
                         success += 1
                     print(f'success:{success},Episode ends')
                     break
                 state_idx=next_state
-            print('Success persentage:', success/episodes)
+            print(str(max_steps_test)+'-Success persentage:', success/episodes)
 
-    print('Success persentage:', success/episodes); f_logs.write(
-        'sl_test-Success persentage:'+str(success/episodes)+'\n')
+    print(str(max_steps_test)+'Success persentage:', success/episodes)
+    f_logs.write(str(max_steps_test)+'-sl_test-Success persentage:'+str(success/episodes)+'\n')
+
 ####################################################################################################################
 # RL
 class PolicyNetwork(object):
@@ -630,7 +659,14 @@ class PolicyNetwork(object):
         # +target
         feed_dict={self.state: state, self.target: target, self.action: action}
         _, loss=sess.run([self.train_op, self.loss], feed_dict)
-        print('loss:', loss)  # /state.shape[0])
+        #print('loss:', loss)  # /state.shape[0])
+        global mean_loss_rl
+        global count_loss_rl
+        global loss_rl
+        mean_loss_rl = (count_loss_rl*mean_loss_rl+loss)/(count_loss_rl+1)
+        count_loss_rl+=1
+        print(f'mean_loss_rl:{mean_loss_rl},count_loss_rl:{count_loss_rl}')
+        loss_rl.update({str(count_loss_rl):str(mean_loss_rl)})
         return loss
 
 
@@ -686,21 +722,25 @@ def REINFORCE(train_pairs, policy_nn, num_episodes):
             success += 1
             length_reward, global_reward = 1/len(env.path), 1
             #total_reward=0.1*global_reward + 0.9*length_reward
-            total_reward= 0.3*global_reward + 0.3*length_reward + 0.4*quality_reward(env.weight)
+            total_reward= 0.5*global_reward + 2.5*length_reward + 2*quality_reward(env.weight)
             update_episode(policy_nn, episode, total_reward)
             print('total_reward success')
         else:
-            global_reward=-0.5 #0.05->0.5
+            global_reward=-0.05
             update_episode(policy_nn, episode, global_reward)
             print('Failed, Do one teacher guideline')
             try:
-                bfs_episodes=bfs_teacher(
-                    sample[0], sample[1], teacher_num_paths, env, kb)
+                bfs_episodes,bibfs_episodes,bibfs_random_episodes = [],[],[]
+                if bfs_on:
+                    bfs_episodes=bfs_teacher(sample[0], sample[1], num_paths, env, kb)
                 print('len(bfs_episodes):',len(bfs_episodes))
-                bibfs_episodes=bibfs_teacher(
-                    sample[0], sample[1], teacher_num_paths, env, kb)
+                if bibfs_vec_on:
+                    bibfs_episodes=bibfs_teacher(sample[0], sample[1], num_paths, env, kb)
                 print('len(bibfs_episodes):',len(bibfs_episodes))
-                good_episodes = bfs_episodes+bibfs_episodes
+                if bibfs_random_on:
+                    bibfs_random_episodes=bibfs_teacher(sample[0], sample[1], num_paths, env, kb, by='symbol')
+                print('len(bibfs_episodes):',len(bibfs_random_episodes))
+                good_episodes = bfs_episodes+bibfs_episodes+bibfs_random_episodes
                 [update_episode(policy_nn, episode, 1)
                                 for episode in good_episodes]
                 print('Teacher guideline success')
@@ -733,7 +773,7 @@ def rl_retrain(episodes=300):
         saver.save(sess, rl_model_path)
     print('Retrained model saved')
 
-def rl_test(episodes=500):
+def rl_test(episodes=500,max_steps_test=50):
     tf.reset_default_graph()
     # restore form parameters of supervised_policy
     policy_network=PolicyNetwork(scope='supervised_policy')
@@ -766,8 +806,11 @@ def rl_test(episodes=500):
                 if done or t == max_steps_test:
                     if done:
                         success += 1; print("Success")
+                        global mean_step_rl
+                        global count_rl
                         mean_step_rl = (count_rl*mean_step_rl + len(env.path_relations))/(count_rl+1)
                         count_rl += 1
+                        print(f'mean_step_rl:{mean_step_rl},count_rl:{count_rl}')
                         path_found.append(path_clean(' -> '.join(env.path)))
                     else:
                         print('Episode ends due to step limit')
@@ -795,9 +838,9 @@ def rl_test(episodes=500):
                         state_batch, (-1, state_dim)), 0.1*diverse_reward, action_batch)
                 path_set.add(' -> '.join(env.path_relations))
             print('Success:', success)
-            print('Success persentage:', success/episodes)
-    print('Success persentage:', success/episodes); f_logs.write(
-        'rl_test-Success persentage:'+str(success/episodes)+'\n')
+            print(str(max_steps_test)+'-Success persentage:', success/episodes)
+    print(str(max_steps_test)+'-Success persentage:', success/episodes)
+    f_logs.write(str(max_steps_test)+'-rl_test-Success persentage:'+str(success/episodes)+'\n')
     # env path reset
     env.path, env.path_relations=[], []
     # store path to use
@@ -811,7 +854,6 @@ def rl_test(episodes=500):
     f_logs.write('path_to_use:\n')
     [f_logs.write(item[0]+'\n') for item in ranking_path]
     print('path to use saved')
-    f_logs.close()
 ####################################################################################################################
 # MAIN
 # relation = '/r/tweet/open/cause'
@@ -843,13 +885,15 @@ annoy_index_rel = AnnoyIndexer()
 annoy_index_rel.load('relation2vec.index')
 annoy_index_rel.model = wv_rel
 
-evidence_num = 1000
-evidence_rel = [r for r,p in wv_rel.most_similar(positive=[relation],topn=evidence_num,indexer=annoy_index_rel)]
+evidence_num = 300
+evidence_rel = [r for r,p in wv_rel.most_similar(positive=[relation],topn=evidence_num,indexer=annoy_index_rel)] #relation+'_inv'
 
 # evidence control
 evidence_rel = [ev_rel for ev_rel in evidence_rel if ev_rel.startswith('/r/tweet/open/')]
 
-evidence_rel.remove(relation);evidence_rel.remove(relation+'_inv')
+if relation in evidence_rel:evidence_rel.remove(relation)
+if relation+'_inv' in evidence_rel:evidence_rel.remove(relation+'_inv')
+if '/r/tweet/open/|' in evidence_rel:evidence_rel.remove('/r/tweet/open/|')
 print('evidence_rel:{0}'.format(evidence_rel))
 print('len(evidence_rel):{0}'.format(len(evidence_rel)))
 
@@ -859,17 +903,20 @@ kb=KB()
 #[kb.addRelation(line.rsplit()[0], line.rsplit()[2], line.rsplit()[1]) \
 #    for line in codecs.open(data_path+'kb_env_rl.txt', 'r', encoding='utf-8')\
 #    if len(line.split()) == 3 and line.split()[2] != relation and line.split()[2] != relation+'_inv']
-[kb.addRelation(line.rsplit()[0], line.rsplit()[2], line.rsplit()[1], float(line.rsplit()[2])) \
+[kb.addRelation(line.rsplit()[0], line.rsplit()[2], line.rsplit()[1], float(line.rsplit()[3])) \
     for line in codecs.open(data_path+'kb_env_rl.txt', 'r', encoding='utf-8')\
-    if len(line.split()) == 3 and line.split()[2] in evidence_rel]
+    if len(line.split()) == 4]# and line.split()[2] in evidence_rel]
 kb_status=dict([(entity, (False, '', '', '')) for entity in kb.entities.keys()])
 
 # key parameter
 action_space=len(evidence_rel)
-num_paths=10
+num_paths=20
 teacher_num_paths=3
 max_steps = 50
-max_steps_test = 50
+max_steps_test = [50]#[1,2,3,4,5,10,15,20,25,50]
+bfs_on = 1
+bibfs_vec_on = 0
+bibfs_random_on = 0
 
 # experiments log
 mean_step_bfs = 0
@@ -877,23 +924,33 @@ count_bfs = 0
 mean_step_bibfs_vec = 0
 count_bibfs_vec = 0
 mean_step_bibfs_random = 0
-count_bibfs = 0
+count_bibfs_random = 0
 mean_step_sl = 0
 count_sl = 0
 mean_step_rl = 0
 count_rl = 0
 
+mean_loss_sl = 0
+count_loss_sl = 0
+loss_sl = {}
+f_loss_sl=codecs.open(task_path+str(evidence_num)+'loss_sl.json', 'a+', encoding='utf-8')
+mean_loss_rl = 0
+count_loss_rl = 0
+loss_rl = {}
+f_loss_rl=codecs.open(task_path+str(evidence_num)+'loss_rl.json', 'a+', encoding='utf-8')
+
 
 
 def training_pipeline(pipeline=4,
-                    sl_train_episodes=1000,
-                    sl_test_episodes=1000,
-                    rl_retrain_episodes=1000,
-                    rl_test_episodes=1000):
+                    sl_train_episodes=500,
+                    sl_test_episodes=500,
+                    rl_retrain_episodes=500,
+                    rl_test_episodes=500):
     '''
     python rl_path_find.py 4 1000 1000 1000 1000
     '''
     # experiment settings
+    start_time = time.time()
     f_logs.write('experiment settings:\n')
     f_logs.write('evidence_num:'+str(evidence_num)+'\n')
     f_logs.write('action_space:'+str(action_space)+'\n')
@@ -901,18 +958,29 @@ def training_pipeline(pipeline=4,
     f_logs.write('teacher_num_paths:'+str(teacher_num_paths)+'\n')
     f_logs.write('max_steps:'+str(max_steps)+'\n')
     f_logs.write('max_steps_test:'+str(max_steps_test)+'\n')
+    f_logs.write('bfs_on:'+str(bfs_on)+'\n')
+    f_logs.write('bibfs_vec_on:'+str(bibfs_vec_on)+'\n')
+    f_logs.write('bibfs_random_on:'+str(bibfs_random_on)+'\n')
     # train pipeline
     sl_train(sl_train_episodes) if pipeline > 3 else ''
-    sl_test(sl_test_episodes) if pipeline > 2 else ''
+    [sl_test(sl_test_episodes,step) if pipeline > 2 else '' for step in max_steps_test]
     rl_retrain(rl_retrain_episodes) if pipeline > 1 else ''
-    rl_test(rl_test_episodes) if pipeline > 0 else ''
+    [rl_test(rl_test_episodes,step) if pipeline > 0 else '' for step in max_steps_test]
     # len(path) distribution
-    f_logs('len(path) distribution:\n')
-    f_logs.write(str(mean_step_bfs)+'\n')
-    f_logs.write(str(mean_step_bibfs_vec)+'\n')
-    f_logs.write(str(mean_step_bibfs_random)+'\n')
-    f_logs.write(str(mean_step_sl)+'\n')
-    f_logs.write(str(mean_step_rl)+'\n')
+    f_logs.write('len(path) distribution\n')
+    f_logs.write(f'mean_step_bfs:{mean_step_bfs}\n')
+    f_logs.write(f'mean_step_bibfs_vec:{mean_step_bibfs_vec}\n')
+    f_logs.write(f'mean_step_bibfs_random:{mean_step_bibfs_random}\n')
+    f_logs.write(f'mean_step_sl:{mean_step_sl}\n')
+    f_logs.write(f'mean_step_rl:{mean_step_rl}\n')
+    # loss
+    f_logs.write(f'mean_loss_sl:{mean_loss_sl}\n')
+    f_logs.write(f'mean_loss_rl:{mean_loss_rl}\n')
+    between = time.time()-start_time
+    f_logs.write(f'between:{between}s\n')
+    f_logs.close()
+    json.dump(loss_sl,f_loss_sl,indent=2)
+    json.dump(loss_rl,f_loss_rl,indent=2)
 
 if __name__ == '__main__':
     import fire

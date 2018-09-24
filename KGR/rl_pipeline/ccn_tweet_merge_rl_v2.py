@@ -7,11 +7,11 @@ from uri import *
 
 # tweet-triples
 tweet = pd.read_csv('./tweet-triples.csv',index_col=None,names=['start','rel','end'])
-print('len(tweet):',len(tweet))
+print('read-len(tweet):',len(tweet))
 # rel transform
 tweet.rel = tweet.rel.str.replace('/r/tweet/Cause','/r/tweet/ner/cause')
 tweet.rel = tweet.rel.str.replace('/r/tweet/IsA','/r/tweet/ner/IsA')
-print('len(tweet):',len(tweet))
+print('rel-trans-len(tweet):',len(tweet))
 # validation
 import re
 re_valid_phrase = re.compile('^/c/en/[a-z]+_?[a-z]+$')
@@ -25,7 +25,7 @@ tweet = tweet[tweet.start.apply(lambda x:valid_phrase(x))]\
 tweet['triple'] = tweet['start']+';'+tweet['rel']+';'+tweet['end']
 tweet_triple_count = tweet.groupby('triple').size()
 
-print('len(tweet):',len(tweet))
+print('validation-len(tweet):',len(tweet))
 
 # count triple
 tweet_new = pd.DataFrame()
@@ -36,20 +36,20 @@ tweet_new['rel'] = tweet_new.triple.apply(lambda x:x.split(';')[1])
 tweet_new['end'] = tweet_new.triple.apply(lambda x:x.split(';')[2])
 tweet_new['weight'] = tweet_new.triple_count.apply(lambda x:x/len(tweet_new))
 
-print('len(tweet_new):',len(tweet_new))
-
-# vocabs_count_threshold 
-vocabs = list(tweet_new.start) + list(tweet_new.end)
-vocabs_count = Counter(vocabs);print('len(vocabs):',len(vocabs_count.keys()))
-vocabs_count_threshold = {k:v for k,v in vocabs_count.items() if v>50}
-tweet_new = tweet_new[tweet_new.start.apply(lambda x:x in vocabs_count_threshold)]
-tweet_new = tweet_new[tweet_new.end.apply(lambda x:x in vocabs_count_threshold)]
+print('weight-len(tweet_new):',len(tweet_new))
 
 # vocabs
 vocabs = list(tweet_new.start) + list(tweet_new.end)
 vocabs_count = Counter(vocabs);print('len(vocabs):',len(vocabs_count.keys()))
 with codecs.open('./tweet-vocabs.json','a+',encoding='utf-8') as f:
     json.dump(vocabs_count,f,indent=2)
+
+# vocabs_count_threshold 
+vocabs_count_threshold = {k:v for k,v in vocabs_count.items() if v>25}
+tweet_new = tweet_new[tweet_new.start.apply(lambda x:x in vocabs_count_threshold)]
+tweet_new = tweet_new[tweet_new.end.apply(lambda x:x in vocabs_count_threshold)]
+vocabs = list(tweet_new.start) + list(tweet_new.end)
+vocabs_count = Counter(vocabs);print('vocabs_count_threshold-len(vocabs):',len(vocabs_count.keys()))
 
 '''
 # ccn
@@ -71,6 +71,10 @@ print('len(merge):',len(merge))
 # rel count filter
 rel_count = merge.groupby(['rel']).size()
 #rel_count.sort_values(ascending=False)
+rel_count_json = {k:int(v) for k,v in rel_count.sort_values(ascending=False).iteritems()}
+with codecs.open('./tweet-rel-count.json','a+',encoding='utf-8') as f:
+    json.dump(rel_count_json,f,indent=2)
+
 min_rel_count = 100
 max_rel_count = 100000
 # %matplotlib inline
